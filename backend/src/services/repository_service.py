@@ -316,6 +316,31 @@ class RepositoryService:
             result = session.execute(select(Branch).where(Branch.id == branch_id))
             return result.scalar_one_or_none()
 
+    def update_access_state_sync(
+        self,
+        repository_id: uuid.UUID,
+        state: AccessState,
+    ) -> None:
+        """Update repository access state (synchronous version for workers).
+
+        Args:
+            repository_id: Repository UUID.
+            state: New access state.
+        """
+        logger.info(
+            "Updating repository access state (sync)",
+            repository_id=str(repository_id),
+            state=state.value,
+        )
+
+        with get_sync_session_context() as session:
+            session.execute(
+                update(Repository)
+                .where(Repository.id == repository_id)
+                .values(access_state=state, updated_at=datetime.now(timezone.utc))
+            )
+            session.commit()
+
 
 class NotificationService:
     """Service for notification/webhook handling."""
@@ -519,6 +544,72 @@ class NotificationService:
 
         async with get_session_context() as session:
             result = await session.execute(
+                select(Notification)
+                .options(
+                    selectinload(Notification.repository),
+                    selectinload(Notification.branch),
+                )
+                .where(Notification.id == notification_id)
+            )
+            return result.scalar_one_or_none()
+
+    # =========================================================================
+    # Synchronous methods for Celery workers
+    # =========================================================================
+
+    def update_status_sync(
+        self,
+        notification_id: uuid.UUID,
+        status: NotificationStatus,
+        error_message: str | None = None,
+    ) -> None:
+        """Update notification processing status (synchronous version for workers).
+
+        Args:
+            notification_id: Notification UUID.
+            status: New status.
+            error_message: Error message if status is ERROR.
+        """
+        logger.info(
+            "Updating notification status (sync)",
+            notification_id=str(notification_id),
+            status=status,
+        )
+
+        processed_at = None
+        if status in (NotificationStatus.DONE, NotificationStatus.ERROR):
+            processed_at = datetime.now(timezone.utc)
+
+        with get_sync_session_context() as session:
+            session.execute(
+                update(Notification)
+                .where(Notification.id == notification_id)
+                .values(
+                    status=status,
+                    processed_at=processed_at,
+                    error_message=error_message,
+                )
+            )
+            session.commit()
+
+    def get_notification_sync(
+        self,
+        notification_id: uuid.UUID,
+    ) -> Notification | None:
+        """Get notification by ID (synchronous version for workers).
+
+        Args:
+            notification_id: Notification UUID.
+
+        Returns:
+            Notification if found, None otherwise.
+        """
+        logger.debug(
+            "Fetching notification (sync)", notification_id=str(notification_id)
+        )
+
+        with get_sync_session_context() as session:
+            result = session.execute(
                 select(Notification)
                 .options(
                     selectinload(Notification.repository),

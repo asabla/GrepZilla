@@ -1,5 +1,6 @@
 """Embedding and chunking for ingestion pipeline."""
 
+import asyncio
 import hashlib
 import uuid
 from dataclasses import dataclass, field
@@ -11,8 +12,12 @@ from backend.src.config.constants import (
     MAX_CHUNKS_PER_FILE,
 )
 from backend.src.config.logging import get_logger
+from backend.src.services.ai.embeddings import EmbeddingClient, get_embedding_client
 from backend.src.services.ingestion.file_filters import FileInfo
-from backend.src.services.search.chunk_embed import ChunkingService, get_chunking_service
+from backend.src.services.search.chunk_embed import (
+    ChunkingService,
+    get_chunking_service,
+)
 
 logger = get_logger(__name__)
 
@@ -48,6 +53,7 @@ class EmbedService:
     def __init__(
         self,
         chunking_service: ChunkingService | None = None,
+        embedding_client: EmbeddingClient | None = None,
         chunk_size: int = CHUNK_SIZE_TOKENS,
         chunk_overlap: int = CHUNK_OVERLAP_TOKENS,
         max_chunks: int = MAX_CHUNKS_PER_FILE,
@@ -56,11 +62,13 @@ class EmbedService:
 
         Args:
             chunking_service: Chunking service instance.
+            embedding_client: Embedding client instance.
             chunk_size: Target chunk size in tokens.
             chunk_overlap: Overlap between chunks.
             max_chunks: Maximum chunks per file.
         """
         self.chunking_service = chunking_service or get_chunking_service()
+        self.embedding_client = embedding_client or get_embedding_client()
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
         self.max_chunks = max_chunks
@@ -106,6 +114,28 @@ class EmbedService:
                 )
                 chunks = chunks[: self.max_chunks]
 
+            # Generate embeddings for all chunks in batch
+            chunk_texts = [chunk.text for chunk in chunks]
+            embeddings: list[list[float]] = []
+            if chunk_texts and self.embedding_client.enabled:
+                try:
+                    embeddings = asyncio.run(
+                        self.embedding_client.embed_batch(chunk_texts)
+                    )
+                    logger.debug(
+                        "Generated embeddings for file",
+                        file_path=file_info.relative_path,
+                        chunk_count=len(chunks),
+                        embedding_count=len(embeddings),
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "Failed to generate embeddings, continuing without",
+                        file_path=file_info.relative_path,
+                        error=str(e),
+                    )
+                    embeddings = []
+
             # Process each chunk
             current_line = 1
             for idx, chunk in enumerate(chunks):
@@ -126,10 +156,13 @@ class EmbedService:
                 # Calculate content hash
                 content_hash = hashlib.sha256(chunk.text.encode()).hexdigest()[:16]
 
+                # Get embedding for this chunk (if available)
+                chunk_embedding = embeddings[idx] if idx < len(embeddings) else None
+
                 embedded_chunk = EmbeddedChunk(
                     id=chunk_id,
                     content=chunk.text,
-                    embedding=chunk.embedding,
+                    embedding=chunk_embedding,
                     file_path=file_info.relative_path,
                     line_start=line_start,
                     line_end=line_end,
@@ -146,6 +179,7 @@ class EmbedService:
                 file_path=file_info.relative_path,
                 chunks=len(result.chunks),
                 total_tokens=result.total_tokens,
+                embeddings_generated=len(embeddings) > 0,
             )
 
         except Exception as e:
@@ -171,7 +205,7 @@ class EmbedService:
 
         for encoding in encodings:
             try:
-                with open(file_path, "r", encoding=encoding) as f:
+                with open(file_path, encoding=encoding) as f:
                     return f.read()
             except UnicodeDecodeError:
                 continue
