@@ -1,3 +1,10 @@
+# Codex specific ignores
+.codex/auth.json
+.codex/config.toml
+.codex/log
+.codex/sessions
+.codex/version.json
+
 # Python-generated files
 __pycache__/
 *.py[oc]
