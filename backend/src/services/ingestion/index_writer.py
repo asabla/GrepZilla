@@ -239,7 +239,7 @@ class IndexWriter:
                 "repository_name": doc.repository_name,
                 "branch_id": doc.branch_id,
                 "branch_name": doc.branch_name,
-                "file_path": doc.file_path,
+                "path": doc.file_path,
                 "line_start": doc.line_start,
                 "line_end": doc.line_end,
                 "file_type": doc.file_type,

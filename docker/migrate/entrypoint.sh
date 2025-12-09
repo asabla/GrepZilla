@@ -141,6 +141,27 @@ run_migrations() {
 }
 
 # ----------------------------------------------------------------------------
+# Bootstrap Meilisearch indexes
+# ----------------------------------------------------------------------------
+bootstrap_meilisearch() {
+    log_info "Bootstrapping Meilisearch indexes..."
+    
+    # Run the bootstrap_indexes function via Python
+    if [ -f "/app/.venv/bin/python" ]; then
+        /app/.venv/bin/python -c "from backend.src.services.search.index_client import bootstrap_indexes; bootstrap_indexes()"
+    else
+        python -c "from backend.src.services.search.index_client import bootstrap_indexes; bootstrap_indexes()"
+    fi
+    
+    if [ $? -eq 0 ]; then
+        log_info "Meilisearch indexes bootstrapped successfully"
+    else
+        log_error "Meilisearch bootstrap failed"
+        exit 1
+    fi
+}
+
+# ----------------------------------------------------------------------------
 # Main
 # ----------------------------------------------------------------------------
 main() {
@@ -153,6 +174,9 @@ main() {
     
     # Run migrations
     run_migrations
+    
+    # Bootstrap Meilisearch indexes
+    bootstrap_meilisearch
     
     log_info "Migration container finished successfully"
 }
