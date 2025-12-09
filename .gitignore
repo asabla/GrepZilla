@@ -8,3 +8,50 @@ wheels/
 
 # Virtual environments
 .venv
+venv/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE/Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated
+.DS_Store
+Thumbs.db
+
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+.nox/
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite3
+
+# Temporary files
+*.tmp
+tmp/
+temp/
+
+# Celery
+celerybeat-schedule
+celerybeat.pid
+
+# mypy
+.mypy_cache/
+
+# ruff
+.ruff_cache/
