@@ -4,6 +4,7 @@
 .codex/log
 .codex/sessions
 .codex/version.json
+.codex/history.jsonl
 
 # Python-generated files
 __pycache__/
