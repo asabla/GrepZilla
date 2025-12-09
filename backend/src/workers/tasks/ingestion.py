@@ -1,19 +1,48 @@
 """Celery tasks for ingestion pipeline."""
 
+import asyncio
 import uuid
-from datetime import datetime, timezone
+from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 from celery import shared_task
 
 from backend.src.config.constants import MAX_BATCH_SIZE
 from backend.src.config.logging import get_logger
 from backend.src.models.notification import NotificationStatus
+from backend.src.services.git.operations import get_git_operations_service
 from backend.src.services.ingestion.discover import get_artifact_discovery
 from backend.src.services.ingestion.embed import get_embed_service
 from backend.src.services.ingestion.index_writer import get_index_writer
-from backend.src.services.repository_service import get_notification_service
+from backend.src.services.repository_service import (
+    get_notification_service,
+    get_repository_service,
+)
+
+T = TypeVar("T")
+
+
+def batched(iterable: Iterable[T], n: int) -> Iterator[tuple[T, ...]]:
+    """Batch an iterable into chunks of size n.
+
+    This is a backport of itertools.batched from Python 3.12.
+
+    Args:
+        iterable: The iterable to batch.
+        n: The batch size.
+
+    Yields:
+        Tuples of at most n items.
+    """
+    from itertools import islice
+
+    if n < 1:
+        raise ValueError("n must be at least 1")
+    iterator = iter(iterable)
+    while batch := tuple(islice(iterator, n)):
+        yield batch
+
 
 logger = get_logger(__name__)
 
@@ -60,7 +89,6 @@ def process_notification(self, notification_id: str) -> dict[str, Any]:
 
     try:
         # Update status to processing
-        import asyncio
         asyncio.run(
             notification_service.update_status(
                 uuid.UUID(notification_id),
@@ -68,19 +96,85 @@ def process_notification(self, notification_id: str) -> dict[str, Any]:
             )
         )
 
-        # TODO: Get notification details from DB to find repository/branch
-        # For now, this is a placeholder
+        # Get notification details from DB to find repository/branch
+        notification = asyncio.run(
+            notification_service.get_notification(uuid.UUID(notification_id))
+        )
+        if notification is None:
+            raise ValueError(f"Notification not found: {notification_id}")
+
+        repository_id = str(notification.repository_id)
+        branch_id = str(notification.branch_id) if notification.branch_id else None
+
+        logger.info(
+            "Retrieved notification details",
+            notification_id=notification_id,
+            repository_id=repository_id,
+            branch_id=branch_id,
+        )
+
+        # Get repository details for cloning
+        repository_service = get_repository_service()
+        repository = asyncio.run(
+            repository_service.get_repository(notification.repository_id)
+        )
+        if repository is None:
+            raise ValueError(f"Repository not found: {repository_id}")
+
+        # Get branch details
+        branch = None
+        branch_name = None
+        if branch_id:
+            branch = asyncio.run(repository_service.get_branch(uuid.UUID(branch_id)))
+            branch_name = branch.name if branch else repository.default_branch
+        else:
+            branch_name = repository.default_branch
 
         # Clone/update repository
-        # repo_path = clone_or_update_repository(repository_id)
+        git_service = get_git_operations_service()
+        credentials = repository_service.get_git_credentials(repository)
+
+        clone_result = git_service.clone_or_update_repository(
+            git_url=repository.git_url,
+            repository_id=repository_id,
+            branch=branch_name,
+            credentials=credentials,
+        )
+
+        if not clone_result.success:
+            raise RuntimeError(f"Git operation failed: {clone_result.error}")
+
+        repo_path = clone_result.repo_path
+        result["commit_sha"] = clone_result.commit_sha
+
+        logger.info(
+            "Repository ready for indexing",
+            repository_id=repository_id,
+            repo_path=str(repo_path),
+            commit_sha=clone_result.commit_sha,
+        )
 
         # Discover files
-        # discovery = get_artifact_discovery()
-        # discovery_result = discovery.discover(repo_path)
+        discovery = get_artifact_discovery()
+        discovery_result = discovery.discover(repo_path)
+
+        logger.info(
+            "Files discovered",
+            repository_id=repository_id,
+            files_to_index=len(discovery_result.files_to_index),
+            files_skipped=discovery_result.files_skipped,
+        )
 
         # Process files in batches
-        # embed_service = get_embed_service()
-        # index_writer = get_index_writer()
+        for batch in batched(discovery_result.files_to_index, MAX_BATCH_SIZE):
+            file_paths = [f.relative_path for f in batch]
+            ingest_repository_batch.delay(
+                repository_id=repository_id,
+                branch_id=branch_id or "",
+                file_paths=file_paths,
+                repo_base_path=str(repo_path),
+            )
+            result["files_indexed"] += len(file_paths)
 
         # Mark as done
         asyncio.run(
@@ -94,6 +188,7 @@ def process_notification(self, notification_id: str) -> dict[str, Any]:
         logger.info(
             "Notification processed successfully",
             notification_id=notification_id,
+            repository_id=repository_id,
             files_indexed=result["files_indexed"],
         )
 
@@ -105,7 +200,6 @@ def process_notification(self, notification_id: str) -> dict[str, Any]:
         )
 
         # Update status to error
-        import asyncio
         asyncio.run(
             notification_service.update_status(
                 uuid.UUID(notification_id),
@@ -191,17 +285,25 @@ def ingest_repository_batch(
 
         # Write to index
         if embedding_results:
-            import asyncio
             index_writer = get_index_writer()
 
-            # TODO: Get repository/branch names from DB
+            # Get repository/branch names from DB
+            repository_service = get_repository_service()
+            repository = repository_service.get_repository_sync(
+                uuid.UUID(repository_id)
+            )
+            repository_name = repository.name if repository else "unknown"
+
+            branch = repository_service.get_branch_sync(uuid.UUID(branch_id))
+            branch_name = branch.name if branch else "unknown"
+
             write_result = asyncio.run(
                 index_writer.write_embedding_results(
                     results=embedding_results,
                     repository_id=repository_id,
-                    repository_name="unknown",  # Would come from DB
+                    repository_name=repository_name,
                     branch_id=branch_id,
-                    branch_name="unknown",  # Would come from DB
+                    branch_name=branch_name,
                 )
             )
 
@@ -262,8 +364,6 @@ def full_reindex_repository(
     }
 
     try:
-        import asyncio
-
         # Delete existing documents for this branch
         index_writer = get_index_writer()
         deleted = asyncio.run(
@@ -271,14 +371,64 @@ def full_reindex_repository(
         )
         result["documents_deleted"] = deleted
 
-        # TODO: Clone/update repository and discover files
-        # This would integrate with git operations
+        # Get repository details for cloning
+        repository_service = get_repository_service()
+        repository = repository_service.get_repository_sync(uuid.UUID(repository_id))
+        if repository is None:
+            raise ValueError(f"Repository not found: {repository_id}")
+
+        branch = repository_service.get_branch_sync(uuid.UUID(branch_id))
+        if branch is None:
+            raise ValueError(f"Branch not found: {branch_id}")
+
+        # Clone/update repository
+        git_service = get_git_operations_service()
+        credentials = repository_service.get_git_credentials(repository)
+
+        clone_result = git_service.clone_or_update_repository(
+            git_url=repository.git_url,
+            repository_id=repository_id,
+            branch=branch.name,
+            credentials=credentials,
+        )
+
+        if not clone_result.success:
+            raise RuntimeError(f"Git operation failed: {clone_result.error}")
+
+        repo_path = clone_result.repo_path
+        result["commit_sha"] = clone_result.commit_sha
+
+        logger.info(
+            "Repository ready for reindexing",
+            repository_id=repository_id,
+            repo_path=str(repo_path),
+            commit_sha=clone_result.commit_sha,
+        )
+
+        # Discover files to index
+        discovery = get_artifact_discovery()
+        discovery_result = discovery.discover(repo_path, branch=branch.name)
+        result["files_discovered"] = len(discovery_result.files_to_index)
+
+        # Process files in batches
+        for batch in batched(discovery_result.files_to_index, MAX_BATCH_SIZE):
+            file_paths = [f.relative_path for f in batch]
+            ingest_repository_batch.delay(
+                repository_id=repository_id,
+                branch_id=branch_id,
+                file_paths=file_paths,
+                repo_base_path=str(repo_path),
+            )
+            result["files_indexed"] += len(file_paths)
 
         logger.info(
             "Full reindex complete",
             repository_id=repository_id,
             branch_id=branch_id,
+            repository_name=repository.name,
+            branch_name=branch.name,
             documents_deleted=result["documents_deleted"],
+            files_discovered=result["files_discovered"],
             files_indexed=result["files_indexed"],
         )
 

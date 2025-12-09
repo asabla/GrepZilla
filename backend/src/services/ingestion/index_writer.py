@@ -1,11 +1,15 @@
 """Index writer for Meilisearch."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from backend.src.config.logging import get_logger
 from backend.src.services.ingestion.embed import EmbeddedChunk, EmbeddingResult
-from backend.src.services.search.index_client import MeilisearchClient, get_meilisearch_client
+from backend.src.services.search.index_client import (
+    CHUNKS_INDEX,
+    MeilisearchClient,
+    get_meilisearch_client,
+)
 
 logger = get_logger(__name__)
 
@@ -36,11 +40,7 @@ class IndexWriteResult:
 
     documents_indexed: int = 0
     documents_failed: int = 0
-    errors: list[str] = None
-
-    def __post_init__(self):
-        if self.errors is None:
-            self.errors = []
+    errors: list[str] = field(default_factory=list)
 
 
 class IndexWriter:
@@ -49,16 +49,16 @@ class IndexWriter:
     def __init__(
         self,
         client: MeilisearchClient | None = None,
-        index_name: str = "code_chunks",
+        index_name: str | None = None,
     ):
         """Initialize index writer.
 
         Args:
             client: Meilisearch client instance.
-            index_name: Name of the index to write to.
+            index_name: Name of the index to write to. Defaults to CHUNKS_INDEX.
         """
         self.client = client or get_meilisearch_client()
-        self.index_name = index_name
+        self.index_name = index_name or CHUNKS_INDEX
 
     async def write_embedding_results(
         self,
@@ -189,7 +189,25 @@ class IndexWriter:
         Returns:
             File type category.
         """
-        code_exts = {"py", "js", "ts", "jsx", "tsx", "go", "rs", "java", "kt", "c", "cpp", "h", "cs", "rb", "php", "swift", "scala"}
+        code_exts = {
+            "py",
+            "js",
+            "ts",
+            "jsx",
+            "tsx",
+            "go",
+            "rs",
+            "java",
+            "kt",
+            "c",
+            "cpp",
+            "h",
+            "cs",
+            "rb",
+            "php",
+            "swift",
+            "scala",
+        }
         doc_exts = {"md", "rst", "txt", "adoc"}
         config_exts = {"json", "yaml", "yml", "toml", "ini", "cfg", "xml"}
 

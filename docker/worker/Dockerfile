@@ -59,6 +59,9 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Copy application code
 COPY backend/ ./backend/
 
+# Create repos directory for git clones
+RUN mkdir -p /app/repos
+
 # Change ownership to non-root user
 RUN chown -R appuser:appgroup /app
 
