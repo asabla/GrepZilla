@@ -1,0 +1,140 @@
+openapi: 3.1.0
+info:
+  title: Code-Aware Search and Q&A API
+  version: 0.1.0
+security:
+  - bearerAuth: []
+paths:
+  /repositories:
+    post:
+      summary: Connect a repository for ingestion
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, git_url, default_branch]
+              properties:
+                name: { type: string }
+                git_url: { type: string, format: uri }
+                default_branch: { type: string }
+                auth_type: { type: string }
+                credential_ref: { type: string }
+      responses:
+        '201': { description: Repository created }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    get:
+      summary: List indexed repositories and branches
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: List repositories
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string }
+                    name: { type: string }
+                    default_branch: { type: string }
+                    freshness_status: { type: string }
+                    last_indexed_at: { type: string, format: date-time }
+                    backlog_size: { type: integer }
+                    branches:
+                      type: array
+                      items:
+                        type: object
+                        properties:
+                          name: { type: string }
+                          is_default: { type: boolean }
+                          freshness_status: { type: string }
+                          last_indexed_at: { type: string, format: date-time }
+                          backlog_size: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /repositories/{id}/webhooks:
+    post:
+      summary: Receive change notification
+      security:
+        - bearerAuth: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event_id: { type: string }
+                branch: { type: string }
+                commit: { type: string }
+      responses:
+        '202': { description: Notification accepted }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /queries:
+    post:
+      summary: Ask a question over indexed code/docs
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [query]
+              properties:
+                query: { type: string }
+                repositories:
+                  type: array
+                  description: Optional list of repository IDs to scope the query.
+                  items: { type: string }
+                branches:
+                  type: object
+                  additionalProperties: { type: string }
+                  description: Optional map of repo_id -> branch name overrides; defaults to each repo's default branch when omitted.
+      responses:
+        '200':
+          description: Answer with citations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  answer: { type: string }
+                  citations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        repository: { type: string }
+                        branch: { type: string }
+                        path: { type: string }
+                        line_start: { type: integer }
+                        line_end: { type: integer }
+                  latency_ms: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    Unauthorized:
+      description: Missing or invalid credentials
+    Forbidden:
+      description: Authenticated but lacks repo/branch access
