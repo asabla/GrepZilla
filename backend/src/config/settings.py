@@ -78,6 +78,76 @@ class Settings(BaseSettings):
     api_reload: bool = False
     api_workers: int = Field(default=1, ge=1)
 
+    # LLM Settings (OpenAI-compatible API)
+    llm_api_base_url: str = Field(
+        default="https://api.openai.com/v1",
+        description="Base URL for OpenAI-compatible API (e.g., http://localhost:11434/v1 for Ollama)",
+    )
+    llm_api_key: SecretStr | None = Field(
+        default=None,
+        description="API key for LLM provider (optional for local servers like Ollama)",
+    )
+    llm_model: str = Field(
+        default="gpt-4o-mini",
+        description="Model name for chat completions (e.g., gpt-4o-mini, llama3.2, mistral)",
+    )
+    llm_max_tokens: int = Field(
+        default=2048,
+        ge=1,
+        le=128000,
+        description="Maximum tokens for LLM response",
+    )
+    llm_temperature: float = Field(
+        default=0.1,
+        ge=0.0,
+        le=2.0,
+        description="Temperature for LLM responses (lower = more focused)",
+    )
+    llm_timeout: int = Field(
+        default=60,
+        ge=1,
+        le=300,
+        description="Timeout in seconds for LLM API calls",
+    )
+
+    # Embedding Settings (OpenAI-compatible API)
+    embedding_api_base_url: str | None = Field(
+        default=None,
+        description="Base URL for embeddings API (defaults to llm_api_base_url if not set)",
+    )
+    embedding_api_key: SecretStr | None = Field(
+        default=None,
+        description="API key for embeddings provider (defaults to llm_api_key if not set)",
+    )
+    embedding_model: str = Field(
+        default="text-embedding-3-small",
+        description="Model name for embeddings (e.g., text-embedding-3-small, nomic-embed-text)",
+    )
+    embedding_dimensions: int | None = Field(
+        default=None,
+        description="Embedding dimensions (optional, model-dependent)",
+    )
+    embedding_batch_size: int = Field(
+        default=100,
+        ge=1,
+        le=2048,
+        description="Batch size for embedding requests",
+    )
+    embedding_enabled: bool = Field(
+        default=True,
+        description="Enable embedding generation (disable for text-only search)",
+    )
+
+    @property
+    def effective_embedding_api_base_url(self) -> str:
+        """Get the effective embedding API base URL."""
+        return self.embedding_api_base_url or self.llm_api_base_url
+
+    @property
+    def effective_embedding_api_key(self) -> SecretStr | None:
+        """Get the effective embedding API key."""
+        return self.embedding_api_key or self.llm_api_key
+
     @property
     def sync_database_url(self) -> str:
         """Get synchronous database URL for Alembic migrations."""

@@ -6,6 +6,7 @@ from typing import Any
 from backend.src.api.schemas.query import Citation, QueryRequest, QueryResponse
 from backend.src.config.constants import MAX_CITATIONS
 from backend.src.config.logging import get_logger
+from backend.src.services.ai.llm import LLMClient, get_llm_client
 from backend.src.services.search.prompt_builder import PromptBuilder
 from backend.src.services.search.search_pipeline import SearchPipeline, SearchResult
 
@@ -15,9 +16,14 @@ logger = get_logger(__name__)
 class QueryService:
     """Service for processing code search queries and generating answers."""
 
-    def __init__(self) -> None:
-        """Initialize query service."""
+    def __init__(self, llm_client: LLMClient | None = None) -> None:
+        """Initialize query service.
+
+        Args:
+            llm_client: Optional LLM client. Uses singleton if not provided.
+        """
         self.prompt_builder = PromptBuilder()
+        self.llm_client = llm_client or get_llm_client()
 
     async def process_query(
         self,
@@ -118,8 +124,28 @@ class QueryService:
     ) -> str:
         """Generate answer from search results.
 
-        This is a placeholder that returns a simple response.
-        In production, this would call an LLM with the context.
+        This is a sync wrapper that calls the async LLM method.
+        For production use, consider making process_query fully async.
+
+        Args:
+            query: Original query text.
+            search_results: Search results with code chunks.
+
+        Returns:
+            Generated answer text.
+        """
+        import asyncio
+
+        return asyncio.get_event_loop().run_until_complete(
+            self._generate_answer_async(query, search_results)
+        )
+
+    async def _generate_answer_async(
+        self,
+        query: str,
+        search_results: list[SearchResult],
+    ) -> str:
+        """Generate answer from search results using LLM.
 
         Args:
             query: Original query text.
@@ -134,10 +160,46 @@ class QueryService:
                 "Please try rephrasing your query or expanding the repository scope."
             )
 
-        # Build context for answer generation
-        context = self.prompt_builder.build_context(search_results)
+        # Build prompt using prompt builder
+        prompt_data = self.prompt_builder.build_full_prompt(query, search_results)
 
-        # Placeholder response - in production, call LLM here
+        try:
+            # Call LLM
+            answer = await self.llm_client.complete(
+                prompt=prompt_data["user"],
+                system_prompt=prompt_data["system"],
+            )
+
+            logger.debug(
+                "LLM answer generated",
+                query_length=len(query),
+                answer_length=len(answer),
+            )
+
+            return answer
+
+        except Exception as e:
+            logger.error(
+                "Failed to generate LLM answer, falling back to simple response",
+                error=str(e),
+            )
+            # Fallback to simple summary
+            return self._generate_fallback_answer(query, search_results)
+
+    def _generate_fallback_answer(
+        self,
+        query: str,
+        search_results: list[SearchResult],
+    ) -> str:
+        """Generate a simple fallback answer when LLM is unavailable.
+
+        Args:
+            query: Original query text.
+            search_results: Search results with code chunks.
+
+        Returns:
+            Simple answer text.
+        """
         answer_parts = [
             f"Based on the codebase analysis, here's what I found about: {query}\n\n",
         ]

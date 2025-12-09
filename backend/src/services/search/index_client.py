@@ -85,36 +85,38 @@ def bootstrap_indexes() -> None:
 
     # Configure chunks index
     chunks_index = client.index(chunks_index_name)
-    chunks_index.update_settings({
-        "searchableAttributes": [
-            "content",
-            "path",
-            "language",
-        ],
-        "filterableAttributes": [
-            "repository_id",
-            "branch_id",
-            "artifact_id",
-            "language",
-            "file_type",
-        ],
-        "sortableAttributes": [
-            "created_at",
-            "line_start",
-        ],
-        "displayedAttributes": [
-            "id",
-            "content",
-            "path",
-            "repository_id",
-            "branch_id",
-            "artifact_id",
-            "line_start",
-            "line_end",
-            "language",
-            "file_type",
-        ],
-    })
+    chunks_index.update_settings(
+        {
+            "searchableAttributes": [
+                "content",
+                "path",
+                "language",
+            ],
+            "filterableAttributes": [
+                "repository_id",
+                "branch_id",
+                "artifact_id",
+                "language",
+                "file_type",
+            ],
+            "sortableAttributes": [
+                "created_at",
+                "line_start",
+            ],
+            "displayedAttributes": [
+                "id",
+                "content",
+                "path",
+                "repository_id",
+                "branch_id",
+                "artifact_id",
+                "line_start",
+                "line_end",
+                "language",
+                "file_type",
+            ],
+        }
+    )
 
     # Create artifacts index with settings
     artifacts_index_name = get_index_name(ARTIFACTS_INDEX)
@@ -128,22 +130,24 @@ def bootstrap_indexes() -> None:
 
     # Configure artifacts index
     artifacts_index = client.index(artifacts_index_name)
-    artifacts_index.update_settings({
-        "searchableAttributes": [
-            "path",
-        ],
-        "filterableAttributes": [
-            "repository_id",
-            "branch_id",
-            "file_type",
-            "parse_status",
-        ],
-        "sortableAttributes": [
-            "path",
-            "size_bytes",
-            "last_indexed_at",
-        ],
-    })
+    artifacts_index.update_settings(
+        {
+            "searchableAttributes": [
+                "path",
+            ],
+            "filterableAttributes": [
+                "repository_id",
+                "branch_id",
+                "file_type",
+                "parse_status",
+            ],
+            "sortableAttributes": [
+                "path",
+                "size_bytes",
+                "last_indexed_at",
+            ],
+        }
+    )
 
     logger.info("Meilisearch indexes bootstrapped successfully")
 
@@ -214,3 +218,105 @@ def search(
         search_params["filter"] = filter_expression
 
     return index.search(query, search_params)
+
+
+class MeilisearchClient:
+    """Async-compatible Meilisearch client wrapper."""
+
+    def __init__(self) -> None:
+        """Initialize Meilisearch client."""
+        self._client = get_client()
+
+    async def add_documents(
+        self,
+        index_name: str,
+        documents: list[dict[str, Any]],
+    ) -> str:
+        """Add documents to an index.
+
+        Args:
+            index_name: Name of the index (without prefix).
+            documents: List of documents to add.
+
+        Returns:
+            Task UID for tracking.
+        """
+        full_index_name = get_index_name(index_name)
+        index = self._client.index(full_index_name)
+        task = index.add_documents(documents)
+        return str(task.task_uid)
+
+    async def delete_documents_by_filter(
+        self,
+        index_name: str,
+        filter_expression: str,
+    ) -> int:
+        """Delete documents by filter.
+
+        Args:
+            index_name: Name of the index (without prefix).
+            filter_expression: Meilisearch filter expression.
+
+        Returns:
+            Approximate number of documents deleted.
+        """
+        full_index_name = get_index_name(index_name)
+        index = self._client.index(full_index_name)
+
+        # Get count before deletion for estimate
+        try:
+            stats = index.get_stats()
+            count_before = stats.number_of_documents
+        except Exception:
+            count_before = 0
+
+        task = index.delete_documents({"filter": filter_expression})
+
+        # Wait for task completion
+        self._client.wait_for_task(task.task_uid, timeout_in_ms=30000)
+
+        # Get count after
+        try:
+            stats = index.get_stats()
+            count_after = stats.number_of_documents
+            return max(0, count_before - count_after)
+        except Exception:
+            return 0
+
+    async def search(
+        self,
+        index_name: str,
+        query: str,
+        filter_expression: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        """Search documents in an index.
+
+        Args:
+            index_name: Name of the index (without prefix).
+            query: Search query string.
+            filter_expression: Optional Meilisearch filter expression.
+            limit: Maximum number of results.
+            offset: Number of results to skip.
+
+        Returns:
+            Search results from Meilisearch.
+        """
+        return search(index_name, query, filter_expression, limit, offset)
+
+
+# Client singleton
+_meilisearch_client: MeilisearchClient | None = None
+
+
+def get_meilisearch_client() -> MeilisearchClient:
+    """Get Meilisearch client singleton.
+
+    Returns:
+        MeilisearchClient instance.
+    """
+    global _meilisearch_client
+    if _meilisearch_client is None:
+        _meilisearch_client = MeilisearchClient()
+    return _meilisearch_client
