@@ -258,6 +258,39 @@ make docker-migrate
 - **Meilisearch** - Full-text search index
 - **Chonkie** - Code chunking and embeddings
 
+## Troubleshooting
+
+### Celery Task Registration
+
+If you see errors like:
+
+```
+Received unregistered task of type 'backend.src.workers.tasks.schedule.check_freshness'.
+The message has been ignored and discarded.
+```
+
+This means the Celery worker doesn't have the task registered. Common causes:
+
+1. **Task name mismatch** - The beat schedule in `app.py` references task names that must match the `name=` parameter in `@shared_task()` decorators in the task modules.
+
+2. **Import issues** - Ensure tasks are properly imported in `backend/src/workers/tasks/__init__.py`.
+
+3. **Worker not restarted** - After code changes, restart the worker:
+   ```bash
+   docker compose restart worker beat
+   ```
+
+4. **Verify registered tasks** - Check worker logs to see registered tasks:
+   ```bash
+   docker compose logs worker | grep "\[tasks\]" -A 20
+   ```
+
+The registered tasks should include:
+- `backend.src.workers.tasks.schedule.check_freshness`
+- `backend.src.workers.tasks.schedule.scheduled_reindex`
+- `backend.src.workers.tasks.ingestion.process_notification`
+- `backend.src.workers.tasks.ingestion.full_reindex_repository`
+
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.

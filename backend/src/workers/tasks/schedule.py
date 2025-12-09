@@ -13,7 +13,151 @@ from backend.src.workers.tasks.ingestion import full_reindex_repository
 logger = get_logger(__name__)
 
 
-@shared_task(bind=True)
+@shared_task(bind=True, name="backend.src.workers.tasks.schedule.check_freshness")
+def check_freshness(self) -> dict[str, Any]:
+    """Check repository freshness and queue reindex for stale repos.
+
+    This is the task called by celery beat every 5 minutes.
+
+    Returns:
+        Summary of freshness check results.
+    """
+    logger.info(
+        "Running freshness check",
+        task_id=self.request.id,
+    )
+
+    result = {
+        "repositories_checked": 0,
+        "stale_repositories": 0,
+        "reindex_tasks_queued": 0,
+        "errors": [],
+    }
+
+    try:
+        # Calculate staleness threshold
+        stale_threshold = datetime.now(timezone.utc) - timedelta(
+            hours=SCHEDULED_REINDEX_HOURS
+        )
+
+        # TODO: Query database for stale repositories
+        # stale_repos = await repository_service.find_stale_repositories(stale_threshold)
+
+        # For now, placeholder
+        stale_repos: list[dict[str, str]] = []
+
+        for repo in stale_repos:
+            try:
+                # Queue full reindex
+                full_reindex_repository.delay(
+                    repository_id=repo["repository_id"],
+                    branch_id=repo["branch_id"],
+                )
+                result["reindex_tasks_queued"] += 1
+
+                logger.info(
+                    "Queued reindex for stale repository",
+                    repository_id=repo["repository_id"],
+                    branch_id=repo["branch_id"],
+                )
+
+            except Exception as e:
+                error_msg = f"Failed to queue reindex for {repo['repository_id']}: {e}"
+                result["errors"].append(error_msg)
+                logger.error(error_msg)
+
+        result["stale_repositories"] = len(stale_repos)
+
+        logger.info(
+            "Freshness check complete",
+            stale_repositories=result["stale_repositories"],
+            reindex_tasks_queued=result["reindex_tasks_queued"],
+        )
+
+    except Exception as e:
+        logger.error(
+            "Freshness check failed",
+            error=str(e),
+        )
+        result["errors"].append(str(e))
+        raise
+
+    return result
+
+
+@shared_task(bind=True, name="backend.src.workers.tasks.schedule.scheduled_reindex")
+def scheduled_reindex(self) -> dict[str, Any]:
+    """Perform scheduled reindex of all repositories.
+
+    This is the task called by celery beat every hour.
+
+    Returns:
+        Summary of scheduled reindex results.
+    """
+    logger.info(
+        "Running scheduled reindex",
+        task_id=self.request.id,
+    )
+
+    result = {
+        "repositories_checked": 0,
+        "reindex_tasks_queued": 0,
+        "errors": [],
+    }
+
+    try:
+        # Calculate staleness threshold
+        stale_threshold = datetime.now(timezone.utc) - timedelta(
+            hours=SCHEDULED_REINDEX_HOURS
+        )
+
+        # TODO: Query database for repositories needing reindex
+        # repos_to_reindex = await repository_service.find_repos_needing_reindex(stale_threshold)
+
+        # For now, placeholder
+        repos_to_reindex: list[dict[str, str]] = []
+
+        for repo in repos_to_reindex:
+            try:
+                full_reindex_repository.delay(
+                    repository_id=repo["repository_id"],
+                    branch_id=repo["branch_id"],
+                )
+                result["reindex_tasks_queued"] += 1
+
+                logger.info(
+                    "Queued scheduled reindex",
+                    repository_id=repo["repository_id"],
+                    branch_id=repo["branch_id"],
+                )
+
+            except Exception as e:
+                error_msg = f"Failed to queue reindex for {repo['repository_id']}: {e}"
+                result["errors"].append(error_msg)
+                logger.error(error_msg)
+
+        result["repositories_checked"] = len(repos_to_reindex)
+
+        logger.info(
+            "Scheduled reindex complete",
+            repositories_checked=result["repositories_checked"],
+            reindex_tasks_queued=result["reindex_tasks_queued"],
+        )
+
+    except Exception as e:
+        logger.error(
+            "Scheduled reindex failed",
+            error=str(e),
+        )
+        result["errors"].append(str(e))
+        raise
+
+    return result
+
+
+@shared_task(
+    bind=True, name="backend.src.workers.tasks.schedule.check_stale_repositories"
+)
 def check_stale_repositories(self) -> dict[str, Any]:
     """Check for repositories needing scheduled reindex.
 
@@ -85,7 +229,9 @@ def check_stale_repositories(self) -> dict[str, Any]:
     return result
 
 
-@shared_task(bind=True)
+@shared_task(
+    bind=True, name="backend.src.workers.tasks.schedule.cleanup_old_notifications"
+)
 def cleanup_old_notifications(self, days_to_keep: int = 30) -> dict[str, Any]:
     """Clean up old processed notifications.
 

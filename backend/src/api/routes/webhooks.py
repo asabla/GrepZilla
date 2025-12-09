@@ -86,9 +86,10 @@ async def receive_webhook(
             commit_sha=payload.commit,
         )
 
-        # Enqueue ingestion task (will be implemented in T036)
-        # from backend.src.workers.tasks.ingestion import process_notification
-        # process_notification.delay(str(notification.id))
+        # Enqueue ingestion task
+        from backend.src.workers.tasks.ingestion import process_notification
+
+        process_notification.delay(str(notification.id))
 
         logger.info(
             "Webhook notification created",
@@ -169,6 +170,11 @@ async def trigger_refresh(
         repository_id=repo_uuid,
         source=NotificationSource.MANUAL,
     )
+
+    # Enqueue ingestion task
+    from backend.src.workers.tasks.ingestion import process_notification
+
+    process_notification.delay(str(notification.id))
 
     logger.info(
         "Manual refresh notification created",
