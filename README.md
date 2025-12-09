@@ -24,7 +24,38 @@ GrepZilla continuously ingests code repositories, discovers all files (source co
 
 ## Quick Start
 
-### 1. Install Dependencies
+### Option A: Docker (Recommended)
+
+The fastest way to get started is using Docker Compose:
+
+```bash
+# Copy environment file
+cp .env.example .env
+
+# Start all services (with hot-reload for development)
+make docker-up
+
+# Or without make:
+docker compose up -d
+```
+
+This starts:
+- **API** at http://localhost:8000
+- **PostgreSQL** at localhost:5432
+- **Redis** at localhost:6379
+- **Redis Insight** (dashboard) at http://localhost:8001
+- **Meilisearch** at http://localhost:7700
+- **Celery worker** and **beat scheduler**
+
+Migrations run automatically before the API starts.
+
+See [Docker Documentation](#docker) for more details.
+
+### Option B: Local Development
+
+For local development without Docker containers for the app:
+
+#### 1. Install Dependencies
 
 ```bash
 # Using uv (recommended)
@@ -34,41 +65,43 @@ uv sync
 pip install -e ".[dev]"
 ```
 
-### 2. Configure Environment
-
-Create a `.env` file:
+#### 2. Configure Environment
 
 ```bash
-DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/grepzilla
-MEILISEARCH_URL=http://localhost:7700
-MEILISEARCH_API_KEY=your-master-key
-REDIS_URL=redis://localhost:6379/0
-JWT_SECRET_KEY=your-secure-secret-key
+cp .env.example .env
+# Edit .env with your settings
 ```
 
-### 3. Start Infrastructure
+#### 3. Start Infrastructure
 
 ```bash
+# Start only infrastructure services
+make infra-up
+
+# Or without make:
 docker compose up -d postgres meilisearch redis
 ```
 
-### 4. Run Migrations
+#### 4. Run Migrations
 
 ```bash
+make migrate
+
+# Or without make:
 uv run alembic upgrade head
 ```
 
-### 5. Start Services
+#### 5. Start Services
 
 ```bash
-# API server
-uv run uvicorn backend.src.api.main:create_app --factory --reload --port 8000
+# API server (with hot-reload)
+make dev
 
 # Celery worker (separate terminal)
-uv run celery -A backend.src.workers.app worker --loglevel=info
+make worker
 
 # Celery beat for scheduled tasks (separate terminal)
-uv run celery -A backend.src.workers.app beat --loglevel=info
+make beat
 ```
 
 ## Usage
@@ -112,13 +145,109 @@ curl -X POST http://localhost:8000/queries \
 
 ```bash
 # Run tests
-uv run pytest
+make test
+
+# Run tests with coverage
+make test-cov
 
 # Run linter
-uv run ruff check .
+make lint
+
+# Format code
+make format
 
 # Run type checker
+make typecheck
+```
+
+Or without make:
+
+```bash
+uv run pytest
+uv run ruff check .
 uv run mypy backend
+```
+
+## Docker
+
+### Development Mode
+
+Development mode includes hot-reload for the API and worker:
+
+```bash
+# Start all services
+make docker-up
+
+# View logs
+make docker-logs
+
+# View logs for specific service
+make docker-logs SERVICE=api
+
+# Open shell in API container
+make docker-shell
+
+# Rebuild after dependency changes
+make docker-build
+make docker-up
+
+# Stop all services
+make docker-down
+
+# Clean up (remove volumes and images)
+make docker-clean
+```
+
+### Production Mode
+
+Production mode uses optimized settings with resource limits:
+
+```bash
+# Build and start production stack
+make docker-prod-build
+make docker-prod-up
+
+# View logs
+make docker-prod-logs
+
+# Stop production stack
+make docker-prod-down
+```
+
+Or without make:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+```
+
+### Services and Ports
+
+| Service | Port | Description |
+|---------|------|-------------|
+| API | 8000 | FastAPI application |
+| PostgreSQL | 5432 | Database |
+| Redis | 6379 | Celery broker & cache |
+| Redis Insight | 8001 | Redis dashboard |
+| Meilisearch | 7700 | Search engine |
+
+### Data Persistence
+
+Data is persisted in Docker named volumes:
+- `postgres_data` - PostgreSQL database
+- `redis_data` - Redis data (if persistence enabled)
+- `meilisearch_data` - Meilisearch indexes
+
+### Migration Flow
+
+Migrations run automatically via the `migrate` container before the API and workers start. This container:
+1. Waits for PostgreSQL, Redis, and Meilisearch to be healthy
+2. Runs `alembic upgrade head`
+3. Exits on success (app containers then start)
+
+To run migrations manually:
+
+```bash
+make docker-migrate
 ```
 
 ## Architecture
