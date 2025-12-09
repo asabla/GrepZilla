@@ -134,6 +134,18 @@ class Settings(BaseSettings):
         description="Timeout in seconds for LLM API calls",
     )
 
+    # Agent Mode Settings (OpenAI Agents SDK)
+    agent_model: str = Field(
+        default="gpt-4o",
+        description="Model name for agent mode (e.g., gpt-4o, gpt-4o-mini)",
+    )
+    agent_max_turns: int = Field(
+        default=10,
+        ge=1,
+        le=50,
+        description="Maximum turns/steps for agent execution",
+    )
+
     # Embedding Settings (OpenAI-compatible API)
     embedding_api_base_url: str | None = Field(
         default=None,

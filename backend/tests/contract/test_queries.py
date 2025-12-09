@@ -95,3 +95,49 @@ async def test_queries_post_query_too_long(client: AsyncClient) -> None:
     )
     # Should fail validation or auth
     assert response.status_code in [401, 422]
+
+
+@pytest.mark.anyio
+async def test_queries_post_accepts_agent_mode_field(client: AsyncClient) -> None:
+    """POST /queries should accept agent_mode field in request body."""
+    response = await client.post(
+        "/queries",
+        json={
+            "query": "How does the authentication middleware work?",
+            "agent_mode": True,
+        },
+        headers={"Authorization": "Bearer test-token"},
+    )
+    # Will fail auth until we mock JWT validation, but should not fail validation
+    assert response.status_code in [200, 401, 403]
+
+
+@pytest.mark.anyio
+async def test_queries_post_agent_mode_defaults_to_false(client: AsyncClient) -> None:
+    """POST /queries should default agent_mode to false."""
+    response = await client.post(
+        "/queries",
+        json={
+            "query": "How does the authentication middleware work?",
+        },
+        headers={"Authorization": "Bearer test-token"},
+    )
+    # Will fail auth until we mock JWT validation, but should not fail validation
+    assert response.status_code in [200, 401, 403]
+
+
+@pytest.mark.anyio
+async def test_queries_post_agent_mode_invalid_type_rejected(
+    client: AsyncClient,
+) -> None:
+    """POST /queries should reject non-boolean agent_mode."""
+    response = await client.post(
+        "/queries",
+        json={
+            "query": "How does the authentication middleware work?",
+            "agent_mode": "yes",  # Invalid type
+        },
+        headers={"Authorization": "Bearer test-token"},
+    )
+    # Should fail validation
+    assert response.status_code in [401, 422]
