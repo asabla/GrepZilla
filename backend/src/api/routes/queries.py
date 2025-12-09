@@ -8,6 +8,7 @@ from backend.src.api.middleware.errors import ValidationError
 from backend.src.api.schemas.query import QueryRequest, QueryResponse
 from backend.src.config.constants import MAX_QUERY_LENGTH
 from backend.src.config.logging import get_logger
+from backend.src.services.agent_query_service import get_agent_query_service
 from backend.src.services.query_service import get_query_service
 
 logger = get_logger(__name__)
@@ -36,11 +37,15 @@ async def create_query(
 
     The query is scoped to repositories the authenticated user has access to.
     Branch overrides can be specified to query non-default branches.
+
+    When agent_mode is enabled, the query uses a multi-step agentic workflow
+    with tool use for more sophisticated reasoning.
     """
     logger.info(
         "Query request received",
         user_id=current_user.sub,
         query_length=len(request.query),
+        agent_mode=request.agent_mode,
     )
 
     # Validate query length
@@ -55,9 +60,13 @@ async def create_query(
         for repo_id in request.repositories:
             require_repository_access(repo_id, current_user)
 
-    # Get query service and process request
-    query_service = get_query_service()
-    response = await query_service.process_query(
+    # Route to appropriate service based on agent_mode
+    if request.agent_mode:
+        service = get_agent_query_service()
+    else:
+        service = get_query_service()
+
+    response = await service.process_query(
         request=request,
         user_id=current_user.sub,
         allowed_repositories=current_user.repository_ids or None,
@@ -69,6 +78,7 @@ async def create_query(
         user_id=current_user.sub,
         latency_ms=response.latency_ms,
         citation_count=len(response.citations),
+        agent_mode=request.agent_mode,
     )
 
     return response

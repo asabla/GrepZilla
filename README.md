@@ -124,6 +124,17 @@ curl -X POST http://localhost:8000/queries \
   -d '{"query": "How does the authentication middleware work?", "repositories": ["repo-id"]}'
 ```
 
+### Ask Questions with Agent Mode
+
+Agent mode uses OpenAI's Agent SDK for multi-step reasoning with tool use. The agent can search the codebase multiple times to gather comprehensive context before answering.
+
+```bash
+curl -X POST http://localhost:8000/queries \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "How does the authentication middleware work?", "repositories": ["repo-id"], "agent_mode": true}'
+```
+
 ### Query Specific Branches
 
 ```bash

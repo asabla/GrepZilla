@@ -37,6 +37,10 @@ class QueryRequest(BaseModel):
         default=None,
         description="Optional map of repo_id -> branch name overrides",
     )
+    agent_mode: bool = Field(
+        default=False,
+        description="Enable agent mode for multi-step reasoning with tool use",
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -44,6 +48,7 @@ class QueryRequest(BaseModel):
                 "query": "How does the authentication middleware work?",
                 "repositories": ["repo-123", "repo-456"],
                 "branches": {"repo-123": "feature-branch"},
+                "agent_mode": False,
             }
         }
     )
@@ -57,7 +62,9 @@ class QueryResponse(BaseModel):
         default_factory=list,
         description="List of citations to relevant code locations",
     )
-    latency_ms: int = Field(..., ge=0, description="Query processing time in milliseconds")
+    latency_ms: int = Field(
+        ..., ge=0, description="Query processing time in milliseconds"
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
