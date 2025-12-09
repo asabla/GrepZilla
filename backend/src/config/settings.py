@@ -1,10 +1,20 @@
 """Environment settings configuration for the application."""
 
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr
+from pydantic import BeforeValidator, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _empty_str_to_none(v: str | None) -> int | None:
+    """Convert empty strings to None for optional int fields."""
+    if v is None or v == "":
+        return None
+    return int(v)
+
+
+OptionalInt = Annotated[int | None, BeforeValidator(_empty_str_to_none)]
 
 
 class Settings(BaseSettings):
@@ -62,6 +72,20 @@ class Settings(BaseSettings):
     git_provider_type: Literal["github", "gitlab", "bitbucket"] = Field(
         default="github",
         description="Git provider type",
+    )
+    git_clone_base_dir: str = Field(
+        default="/tmp/grepzilla/repos",
+        description="Base directory for cloning repositories",
+    )
+    git_clone_timeout: int = Field(
+        default=300,
+        ge=30,
+        le=3600,
+        description="Timeout in seconds for git clone/fetch operations",
+    )
+    git_clone_depth: OptionalInt = Field(
+        default=None,
+        description="Shallow clone depth (None for full clone)",
     )
 
     # JWT Authentication
@@ -123,7 +147,7 @@ class Settings(BaseSettings):
         default="text-embedding-3-small",
         description="Model name for embeddings (e.g., text-embedding-3-small, nomic-embed-text)",
     )
-    embedding_dimensions: int | None = Field(
+    embedding_dimensions: OptionalInt = Field(
         default=None,
         description="Embedding dimensions (optional, model-dependent)",
     )

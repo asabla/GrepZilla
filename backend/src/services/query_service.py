@@ -71,7 +71,7 @@ class QueryService:
         search_results = pipeline.search_with_context(request.query)
 
         # Build context and generate answer
-        answer = self._generate_answer(request.query, search_results)
+        answer = await self._generate_answer_async(request.query, search_results)
 
         # Assemble citations from search results
         citations = self._build_citations(search_results)

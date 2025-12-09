@@ -43,6 +43,7 @@ services:
       - ./pyproject.toml:/app/pyproject.toml:ro
       - ./uv.lock:/app/uv.lock:ro
       - worker_venv:/app/.venv
+      - git_repos:/app/repos
     command: >
       sh -c "
         pip install uv watchfiles &&
@@ -52,6 +53,7 @@ services:
     environment:
       DEBUG: "true"
       APP_ENV: development
+      GIT_CLONE_BASE_DIR: /app/repos
 
   # --------------------------------------------------------------------------
   # Beat scheduler (no hot-reload needed)
@@ -111,4 +113,6 @@ volumes:
   beat_venv:
     driver: local
   migrate_venv:
+    driver: local
+  git_repos:
     driver: local

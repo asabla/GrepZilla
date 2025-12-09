@@ -72,6 +72,8 @@ services:
     environment:
       DEBUG: "false"
       APP_ENV: production
+    volumes:
+      - git_repos:/app/repos
     deploy:
       resources:
         limits:
@@ -99,3 +101,11 @@ services:
   migrate:
     # Migration container should exit after completion, no restart
     restart: "no"
+
+# ----------------------------------------------------------------------------
+# Volumes
+# ----------------------------------------------------------------------------
+
+volumes:
+  git_repos:
+    driver: local
