@@ -293,6 +293,159 @@ class IndexWriter:
 
         return deleted
 
+    # =========================================================================
+    # Synchronous methods for Celery workers
+    # =========================================================================
+
+    def write_embedding_results_sync(
+        self,
+        results: list[EmbeddingResult],
+        repository_id: str,
+        repository_name: str,
+        branch_id: str,
+        branch_name: str,
+    ) -> IndexWriteResult:
+        """Write embedding results to the index (synchronous version).
+
+        Args:
+            results: List of embedding results from processing.
+            repository_id: Repository UUID.
+            repository_name: Repository display name.
+            branch_id: Branch UUID.
+            branch_name: Branch name.
+
+        Returns:
+            IndexWriteResult with counts and errors.
+        """
+        write_result = IndexWriteResult()
+        documents = []
+        indexed_at = datetime.now(timezone.utc).isoformat()
+
+        for result in results:
+            if result.error:
+                write_result.errors.append(
+                    f"Skipping {result.file_path}: {result.error}"
+                )
+                continue
+
+            for chunk in result.chunks:
+                doc = self._create_document(
+                    chunk=chunk,
+                    repository_id=repository_id,
+                    repository_name=repository_name,
+                    branch_id=branch_id,
+                    branch_name=branch_name,
+                    indexed_at=indexed_at,
+                )
+                documents.append(doc)
+
+        if not documents:
+            logger.warning("No documents to index (sync)")
+            return write_result
+
+        # Write documents in batches
+        batch_size = 100
+        for i in range(0, len(documents), batch_size):
+            batch = documents[i : i + batch_size]
+            try:
+                self._write_batch_sync(batch)
+                write_result.documents_indexed += len(batch)
+                logger.debug(
+                    "Batch indexed (sync)",
+                    batch_size=len(batch),
+                    total_indexed=write_result.documents_indexed,
+                )
+            except Exception as e:
+                write_result.documents_failed += len(batch)
+                write_result.errors.append(f"Batch write failed: {e}")
+                logger.error(
+                    "Batch write failed (sync)",
+                    batch_start=i,
+                    batch_size=len(batch),
+                    error=str(e),
+                )
+
+        logger.info(
+            "Index write complete (sync)",
+            documents_indexed=write_result.documents_indexed,
+            documents_failed=write_result.documents_failed,
+            errors=len(write_result.errors),
+        )
+
+        return write_result
+
+    def _write_batch_sync(self, documents: list[IndexDocument]) -> None:
+        """Write a batch of documents to the index (synchronous).
+
+        Args:
+            documents: Documents to write.
+
+        Raises:
+            Exception: If write fails.
+        """
+        # Convert to dicts for Meilisearch
+        docs_dict = [
+            {
+                "id": doc.id,
+                "content": doc.content,
+                "repository_id": doc.repository_id,
+                "repository_name": doc.repository_name,
+                "branch_id": doc.branch_id,
+                "branch_name": doc.branch_name,
+                "path": doc.file_path,
+                "line_start": doc.line_start,
+                "line_end": doc.line_end,
+                "file_type": doc.file_type,
+                "chunk_index": doc.chunk_index,
+                "content_hash": doc.content_hash,
+                "indexed_at": doc.indexed_at,
+            }
+            for doc in documents
+        ]
+
+        # Add embeddings if present (for vector search)
+        for i, doc in enumerate(documents):
+            if doc.embedding:
+                docs_dict[i]["_vectors"] = {"default": doc.embedding}
+
+        # Write to Meilisearch
+        self.client.add_documents_sync(self.index_name, docs_dict)
+
+    def delete_branch_documents_sync(
+        self,
+        repository_id: str,
+        branch_id: str,
+    ) -> int:
+        """Delete all documents for a branch (synchronous version).
+
+        Args:
+            repository_id: Repository UUID.
+            branch_id: Branch UUID.
+
+        Returns:
+            Number of documents deleted.
+        """
+        logger.info(
+            "Deleting branch documents (sync)",
+            repository_id=repository_id,
+            branch_id=branch_id,
+        )
+
+        # Use filter to delete matching documents
+        filter_str = f"repository_id = '{repository_id}' AND branch_id = '{branch_id}'"
+        deleted = self.client.delete_documents_by_filter_sync(
+            self.index_name, filter_str
+        )
+
+        logger.info(
+            "Branch documents deleted (sync)",
+            repository_id=repository_id,
+            branch_id=branch_id,
+            deleted_count=deleted,
+        )
+
+        return deleted
+
 
 # Service singleton
 _index_writer: IndexWriter | None = None

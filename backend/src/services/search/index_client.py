@@ -305,6 +305,66 @@ class MeilisearchClient:
         """
         return search(index_name, query, filter_expression, limit, offset)
 
+    # =========================================================================
+    # Synchronous methods for Celery workers
+    # =========================================================================
+
+    def add_documents_sync(
+        self,
+        index_name: str,
+        documents: list[dict[str, Any]],
+    ) -> str:
+        """Add documents to an index (synchronous version).
+
+        Args:
+            index_name: Name of the index (without prefix).
+            documents: List of documents to add.
+
+        Returns:
+            Task UID for tracking.
+        """
+        full_index_name = get_index_name(index_name)
+        index = self._client.index(full_index_name)
+        task = index.add_documents(documents)
+        return str(task.task_uid)
+
+    def delete_documents_by_filter_sync(
+        self,
+        index_name: str,
+        filter_expression: str,
+    ) -> int:
+        """Delete documents by filter (synchronous version).
+
+        Args:
+            index_name: Name of the index (without prefix).
+            filter_expression: Meilisearch filter expression.
+
+        Returns:
+            Approximate number of documents deleted.
+        """
+        full_index_name = get_index_name(index_name)
+        index = self._client.index(full_index_name)
+
+        # Get count before deletion for estimate
+        try:
+            stats = index.get_stats()
+            count_before = stats.number_of_documents
+        except Exception:
+            count_before = 0
+
+        task = index.delete_documents({"filter": filter_expression})
+
+        # Wait for task completion
+        self._client.wait_for_task(task.task_uid, timeout_in_ms=30000)
+
+        # Get count after
+        try:
+            stats = index.get_stats()
+            count_after = stats.number_of_documents
+            return max(0, count_before - count_after)
+        except Exception:
+            return 0
+
 
 # Client singleton
 _meilisearch_client: MeilisearchClient | None = None

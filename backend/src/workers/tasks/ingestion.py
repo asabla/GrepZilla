@@ -1,6 +1,5 @@
 """Celery tasks for ingestion pipeline."""
 
-import asyncio
 import uuid
 from collections.abc import Iterable, Iterator
 from pathlib import Path
@@ -11,7 +10,9 @@ from celery import shared_task
 from backend.src.config.constants import MAX_BATCH_SIZE
 from backend.src.config.logging import get_logger
 from backend.src.models.notification import NotificationStatus
+from backend.src.models.repository import AccessState
 from backend.src.services.git.operations import get_git_operations_service
+from backend.src.services.ingestion.artifact_writer import get_artifact_writer
 from backend.src.services.ingestion.discover import get_artifact_discovery
 from backend.src.services.ingestion.embed import get_embed_service
 from backend.src.services.ingestion.index_writer import get_index_writer
@@ -89,16 +90,14 @@ def process_notification(self, notification_id: str) -> dict[str, Any]:
 
     try:
         # Update status to processing
-        asyncio.run(
-            notification_service.update_status(
-                uuid.UUID(notification_id),
-                NotificationStatus.PROCESSING,
-            )
+        notification_service.update_status_sync(
+            uuid.UUID(notification_id),
+            NotificationStatus.PROCESSING,
         )
 
         # Get notification details from DB to find repository/branch
-        notification = asyncio.run(
-            notification_service.get_notification(uuid.UUID(notification_id))
+        notification = notification_service.get_notification_sync(
+            uuid.UUID(notification_id)
         )
         if notification is None:
             raise ValueError(f"Notification not found: {notification_id}")
@@ -115,9 +114,7 @@ def process_notification(self, notification_id: str) -> dict[str, Any]:
 
         # Get repository details for cloning
         repository_service = get_repository_service()
-        repository = asyncio.run(
-            repository_service.get_repository(notification.repository_id)
-        )
+        repository = repository_service.get_repository_sync(notification.repository_id)
         if repository is None:
             raise ValueError(f"Repository not found: {repository_id}")
 
@@ -125,7 +122,7 @@ def process_notification(self, notification_id: str) -> dict[str, Any]:
         branch = None
         branch_name = None
         if branch_id:
-            branch = asyncio.run(repository_service.get_branch(uuid.UUID(branch_id)))
+            branch = repository_service.get_branch_sync(uuid.UUID(branch_id))
             branch_name = branch.name if branch else repository.default_branch
         else:
             branch_name = repository.default_branch
@@ -162,8 +159,34 @@ def process_notification(self, notification_id: str) -> dict[str, Any]:
             "Files discovered",
             repository_id=repository_id,
             files_to_index=len(discovery_result.files_to_index),
+            files_catalog_only=len(discovery_result.files_catalog_only),
             files_skipped=discovery_result.files_skipped,
         )
+
+        # Write all discovered files to artifacts index (DB + Meilisearch)
+        if branch_id:
+            all_discovered_files = (
+                discovery_result.files_to_index + discovery_result.files_catalog_only
+            )
+            if all_discovered_files:
+                artifact_writer = get_artifact_writer()
+                artifact_result = artifact_writer.write_artifacts_sync(
+                    files=all_discovered_files,
+                    repository_id=repository_id,
+                    branch_id=branch_id,
+                    commit_sha=clone_result.commit_sha,
+                    mark_as_parsed=False,  # Will be marked after chunk processing
+                )
+                result["artifacts_written"] = artifact_result.artifacts_written
+                if artifact_result.errors:
+                    result["errors"].extend(artifact_result.errors)
+
+                logger.info(
+                    "Artifacts written",
+                    repository_id=repository_id,
+                    artifacts_written=artifact_result.artifacts_written,
+                    meilisearch_indexed=artifact_result.meilisearch_indexed,
+                )
 
         # Process files in batches
         for batch in batched(discovery_result.files_to_index, MAX_BATCH_SIZE):
@@ -177,11 +200,9 @@ def process_notification(self, notification_id: str) -> dict[str, Any]:
             result["files_indexed"] += len(file_paths)
 
         # Mark as done
-        asyncio.run(
-            notification_service.update_status(
-                uuid.UUID(notification_id),
-                NotificationStatus.DONE,
-            )
+        notification_service.update_status_sync(
+            uuid.UUID(notification_id),
+            NotificationStatus.DONE,
         )
 
         result["status"] = "completed"
@@ -200,12 +221,10 @@ def process_notification(self, notification_id: str) -> dict[str, Any]:
         )
 
         # Update status to error
-        asyncio.run(
-            notification_service.update_status(
-                uuid.UUID(notification_id),
-                NotificationStatus.ERROR,
-                error_message=str(e)[:1024],
-            )
+        notification_service.update_status_sync(
+            uuid.UUID(notification_id),
+            NotificationStatus.ERROR,
+            error_message=str(e)[:1024],
         )
 
         result["status"] = "error"
@@ -294,17 +313,17 @@ def ingest_repository_batch(
             )
             repository_name = repository.name if repository else "unknown"
 
-            branch = repository_service.get_branch_sync(uuid.UUID(branch_id))
-            branch_name = branch.name if branch else "unknown"
+            branch_name = "unknown"
+            if branch_id:
+                branch = repository_service.get_branch_sync(uuid.UUID(branch_id))
+                branch_name = branch.name if branch else "unknown"
 
-            write_result = asyncio.run(
-                index_writer.write_embedding_results(
-                    results=embedding_results,
-                    repository_id=repository_id,
-                    repository_name=repository_name,
-                    branch_id=branch_id,
-                    branch_name=branch_name,
-                )
+            write_result = index_writer.write_embedding_results_sync(
+                results=embedding_results,
+                repository_id=repository_id,
+                repository_name=repository_name,
+                branch_id=branch_id,
+                branch_name=branch_name,
             )
 
             if write_result.errors:
@@ -360,16 +379,23 @@ def full_reindex_repository(
         "files_indexed": 0,
         "chunks_created": 0,
         "documents_deleted": 0,
+        "artifacts_deleted": 0,
+        "artifacts_written": 0,
         "errors": [],
     }
 
     try:
-        # Delete existing documents for this branch
+        # Delete existing documents for this branch (chunks index)
         index_writer = get_index_writer()
-        deleted = asyncio.run(
-            index_writer.delete_branch_documents(repository_id, branch_id)
-        )
+        deleted = index_writer.delete_branch_documents_sync(repository_id, branch_id)
         result["documents_deleted"] = deleted
+
+        # Delete existing artifacts for this branch (artifacts index + DB)
+        artifact_writer = get_artifact_writer()
+        artifacts_deleted = artifact_writer.delete_branch_artifacts_sync(
+            repository_id, branch_id
+        )
+        result["artifacts_deleted"] = artifacts_deleted
 
         # Get repository details for cloning
         repository_service = get_repository_service()
@@ -410,6 +436,28 @@ def full_reindex_repository(
         discovery_result = discovery.discover(repo_path, branch=branch.name)
         result["files_discovered"] = len(discovery_result.files_to_index)
 
+        # Write all discovered files to artifacts index (DB + Meilisearch)
+        all_discovered_files = (
+            discovery_result.files_to_index + discovery_result.files_catalog_only
+        )
+        if all_discovered_files:
+            artifact_result = artifact_writer.write_artifacts_sync(
+                files=all_discovered_files,
+                repository_id=repository_id,
+                branch_id=branch_id,
+                commit_sha=clone_result.commit_sha,
+                mark_as_parsed=False,
+            )
+            result["artifacts_written"] = artifact_result.artifacts_written
+            if artifact_result.errors:
+                result["errors"].extend(artifact_result.errors)
+
+            logger.info(
+                "Artifacts written during reindex",
+                repository_id=repository_id,
+                artifacts_written=artifact_result.artifacts_written,
+            )
+
         # Process files in batches
         for batch in batched(discovery_result.files_to_index, MAX_BATCH_SIZE):
             file_paths = [f.relative_path for f in batch]
@@ -432,6 +480,12 @@ def full_reindex_repository(
             files_indexed=result["files_indexed"],
         )
 
+        # Mark repository as active after successful indexing
+        repository_service.update_access_state_sync(
+            uuid.UUID(repository_id),
+            AccessState.ACTIVE,
+        )
+
     except Exception as e:
         logger.error(
             "Full reindex failed",
@@ -440,6 +494,21 @@ def full_reindex_repository(
             error=str(e),
         )
         result["errors"].append(str(e))
+
+        # Mark repository as error state on failure
+        try:
+            repository_service = get_repository_service()
+            repository_service.update_access_state_sync(
+                uuid.UUID(repository_id),
+                AccessState.ERROR,
+            )
+        except Exception as state_error:
+            logger.error(
+                "Failed to update repository access state to ERROR",
+                repository_id=repository_id,
+                error=str(state_error),
+            )
+
         raise
 
     return result
