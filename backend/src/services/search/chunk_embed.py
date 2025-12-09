@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from chonkie import TokenChunker
+from chonkie import TokenChunker  # type: ignore[attr-defined]
 
 from backend.src.config.constants import (
     CHUNK_OVERLAP_TOKENS,
@@ -144,9 +144,7 @@ def chunk_text(
         current_position = chunk_start + 1  # Move past for next search
 
         # Calculate line numbers
-        start_line, end_line = _calculate_line_numbers(
-            content, chunk_start, chunk_end
-        )
+        start_line, end_line = _calculate_line_numbers(content, chunk_start, chunk_end)
 
         results.append(
             ChunkResult(
@@ -205,3 +203,80 @@ def estimate_token_count(text: str) -> int:
     # Rough estimate: ~1.3 tokens per word for code
     words = len(text.split())
     return int(words * 1.3)
+
+
+class Chunk:
+    """A chunk of text with optional embedding."""
+
+    def __init__(
+        self,
+        text: str,
+        token_count: int,
+        embedding: list[float] | None = None,
+    ) -> None:
+        """Initialize chunk.
+
+        Args:
+            text: The chunk text content.
+            token_count: Number of tokens in the chunk.
+            embedding: Optional embedding vector.
+        """
+        self.text = text
+        self.token_count = token_count
+        self.embedding = embedding
+
+
+class ChunkingService:
+    """Service for chunking text content."""
+
+    def __init__(
+        self,
+        chunk_size: int = CHUNK_SIZE_TOKENS,
+        chunk_overlap: int = CHUNK_OVERLAP_TOKENS,
+        max_chunks: int = MAX_CHUNKS_PER_FILE,
+    ) -> None:
+        """Initialize chunking service.
+
+        Args:
+            chunk_size: Target chunk size in tokens.
+            chunk_overlap: Overlap between chunks in tokens.
+            max_chunks: Maximum number of chunks per document.
+        """
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        self.max_chunks = max_chunks
+
+    def chunk_text(self, content: str) -> list[Chunk]:
+        """Chunk text content.
+
+        Args:
+            content: Text content to chunk.
+
+        Returns:
+            List of Chunk objects.
+        """
+        results = chunk_text(content, self.max_chunks)
+        return [
+            Chunk(
+                text=result.content,
+                token_count=result.token_count,
+                embedding=None,
+            )
+            for result in results
+        ]
+
+
+# Service singleton
+_chunking_service: ChunkingService | None = None
+
+
+def get_chunking_service() -> ChunkingService:
+    """Get chunking service singleton.
+
+    Returns:
+        ChunkingService instance.
+    """
+    global _chunking_service
+    if _chunking_service is None:
+        _chunking_service = ChunkingService()
+    return _chunking_service
