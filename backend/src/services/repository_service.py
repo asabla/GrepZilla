@@ -177,6 +177,7 @@ class RepositoryService:
                                 if b.last_indexed_at
                                 else None
                             ),
+                            "backlog_size": b.backlog_size,
                         }
                         for b in repo.branches
                     ],

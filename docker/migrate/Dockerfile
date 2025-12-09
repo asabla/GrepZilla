@@ -59,8 +59,9 @@ ENV PATH="/app/.venv/bin:$PATH"
 # Copy application code and migration files
 COPY backend/ ./backend/
 
-# Copy alembic config if it exists (optional)
-COPY alembic.in[i] ./
+# Copy alembic configuration and migrations
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
 
 # Copy migration entrypoint script
 COPY docker/migrate/entrypoint.sh ./entrypoint.sh

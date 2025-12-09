@@ -73,11 +73,14 @@ services:
     build:
       context: .
       dockerfile: docker/migrate/Dockerfile
+      target: runtime
     container_name: grepzilla-migrate
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-grepzilla}
       REDIS_URL: redis://redis:6379/0
       MEILISEARCH_URL: http://meilisearch:7700
+      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-masterKey}
+      MEILISEARCH_INDEX_PREFIX: ${MEILISEARCH_INDEX_PREFIX:-grepzilla}
     depends_on:
       postgres:
         condition: service_healthy
