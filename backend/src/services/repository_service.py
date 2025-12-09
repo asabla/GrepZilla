@@ -6,7 +6,11 @@ from typing import Any
 
 from backend.src.config.logging import get_logger
 from backend.src.models.branch import Branch
-from backend.src.models.notification import Notification, NotificationSource, NotificationStatus
+from backend.src.models.notification import (
+    Notification,
+    NotificationSource,
+    NotificationStatus,
+)
 from backend.src.models.repository import AccessState, AuthType, Repository
 
 logger = get_logger(__name__)
@@ -70,6 +74,20 @@ class RepositoryService:
 
         logger.info(
             "Repository created",
+            repository_id=str(repository.id),
+            branch_id=str(default_branch_record.id),
+        )
+
+        # Trigger initial ingestion for the new repository
+        from backend.src.workers.tasks.ingestion import full_reindex_repository
+
+        full_reindex_repository.delay(
+            repository_id=str(repository.id),
+            branch_id=str(default_branch_record.id),
+        )
+
+        logger.info(
+            "Queued initial ingestion",
             repository_id=str(repository.id),
             branch_id=str(default_branch_record.id),
         )

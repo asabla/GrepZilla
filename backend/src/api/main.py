@@ -36,6 +36,10 @@ def create_app() -> FastAPI:
     # Configure logging first
     configure_logging()
 
+    # Initialize Celery app to enable task dispatching from API
+    # This must be done before any tasks are imported
+    from backend.src.workers.app import celery_app  # noqa: F401
+
     app = FastAPI(
         title="GrepZilla API",
         description="Code-Aware Search and Q&A API",
