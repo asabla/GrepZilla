@@ -1,0 +1,101 @@
+# ============================================================================
+# GrepZilla Docker Compose - Production Profile
+# Optimized for production deployment with resource limits and security
+# ============================================================================
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # Infrastructure Services - Production Settings
+  # --------------------------------------------------------------------------
+  
+  postgres:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  redis:
+    restart: always
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy volatile-lru
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  meilisearch:
+    restart: always
+    environment:
+      MEILI_ENV: production
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  # --------------------------------------------------------------------------
+  # Application Services - Production Settings
+  # --------------------------------------------------------------------------
+  
+  api:
+    restart: always
+    command: ["uvicorn", "backend.src.api.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--workers", "${API_WORKERS:-4}"]
+    environment:
+      DEBUG: "false"
+      APP_ENV: production
+      API_WORKERS: ${API_WORKERS:-4}
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  worker:
+    restart: always
+    command: ["celery", "-A", "backend.src.workers.app", "worker", "--loglevel=warning", "--concurrency=${CELERY_CONCURRENCY:-4}"]
+    environment:
+      DEBUG: "false"
+      APP_ENV: production
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+
+  beat:
+    restart: always
+    command: ["celery", "-A", "backend.src.workers.app", "beat", "--loglevel=warning"]
+    environment:
+      DEBUG: "false"
+      APP_ENV: production
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+
+  migrate:
+    # Migration container should exit after completion, no restart
+    restart: "no"
