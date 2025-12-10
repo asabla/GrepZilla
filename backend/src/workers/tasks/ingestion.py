@@ -9,6 +9,7 @@ from celery import shared_task
 
 from backend.src.config.constants import MAX_BATCH_SIZE
 from backend.src.config.logging import get_logger
+from backend.src.models.branch import FreshnessStatus
 from backend.src.models.notification import NotificationStatus
 from backend.src.models.repository import AccessState
 from backend.src.services.git.operations import get_git_operations_service
@@ -204,6 +205,14 @@ def process_notification(self, notification_id: str) -> dict[str, Any]:
             uuid.UUID(notification_id),
             NotificationStatus.DONE,
         )
+
+        # Update branch freshness after successful notification processing
+        if branch_id:
+            repository_service = get_repository_service()
+            repository_service.update_branch_freshness_sync(
+                uuid.UUID(branch_id),
+                FreshnessStatus.FRESH,
+            )
 
         result["status"] = "completed"
         logger.info(
@@ -486,6 +495,12 @@ def full_reindex_repository(
             AccessState.ACTIVE,
         )
 
+        # Mark branch as fresh after successful indexing
+        repository_service.update_branch_freshness_sync(
+            uuid.UUID(branch_id),
+            FreshnessStatus.FRESH,
+        )
+
     except Exception as e:
         logger.error(
             "Full reindex failed",
@@ -502,10 +517,16 @@ def full_reindex_repository(
                 uuid.UUID(repository_id),
                 AccessState.ERROR,
             )
+            # Also mark branch as error
+            repository_service.update_branch_freshness_sync(
+                uuid.UUID(branch_id),
+                FreshnessStatus.ERROR,
+            )
         except Exception as state_error:
             logger.error(
-                "Failed to update repository access state to ERROR",
+                "Failed to update repository/branch state to ERROR",
                 repository_id=repository_id,
+                branch_id=branch_id,
                 error=str(state_error),
             )
 
