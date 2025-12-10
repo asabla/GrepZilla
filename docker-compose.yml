@@ -11,6 +11,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: grepzilla-postgres
+    env_file: .env
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
@@ -31,6 +32,7 @@ services:
   redis:
     image: redis/redis-stack:latest
     container_name: grepzilla-redis
+    env_file: .env
     ports:
       - "${REDIS_PORT:-6379}:6379"
       - "${REDIS_INSIGHT_PORT:-8001}:8001"
@@ -48,6 +50,7 @@ services:
   meilisearch:
     image: getmeili/meilisearch:v1.11
     container_name: grepzilla-meilisearch
+    env_file: .env
     environment:
       MEILI_MASTER_KEY: ${MEILISEARCH_API_KEY:-masterKey}
       MEILI_ENV: ${MEILI_ENV:-development}
@@ -75,6 +78,7 @@ services:
       dockerfile: docker/migrate/Dockerfile
       target: runtime
     container_name: grepzilla-migrate
+    env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-grepzilla}
       REDIS_URL: redis://redis:6379/0
@@ -100,6 +104,7 @@ services:
       context: .
       dockerfile: docker/api/Dockerfile
     container_name: grepzilla-api
+    env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-grepzilla}
       REDIS_URL: redis://redis:6379/0
@@ -146,6 +151,7 @@ services:
       context: .
       dockerfile: docker/worker/Dockerfile
     container_name: grepzilla-worker
+    env_file: .env
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-grepzilla}
       REDIS_URL: redis://redis:6379/0
@@ -184,6 +190,7 @@ services:
       context: .
       dockerfile: docker/worker/Dockerfile
     container_name: grepzilla-beat
+    env_file: .env
     command: ["celery", "-A", "backend.src.workers.app", "beat", "--loglevel=info"]
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-grepzilla}
