@@ -150,7 +150,9 @@ When answering:
 - Start by searching for the most relevant code
 - If needed, search for related implementations, tests, or documentation
 - Synthesize findings into a coherent answer
-- Include file paths and line numbers for all code references"""
+- Include file paths and line numbers for all code references
+- Always answer with markdown formatting
+- Always include a 'Citations' section listing all referenced code snippets with paths and line numbers"""
 
     async def run_agent(
         self,
