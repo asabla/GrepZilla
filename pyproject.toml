@@ -20,7 +20,7 @@ dependencies = [
     # Search
     "meilisearch>=0.31.0",
     # Chunking and embeddings
-    "chonkie>=0.1.0",
+    "chonkie[code]>=1.0.0",
     # Authentication
     "python-jose[cryptography]>=3.3.0",
     "passlib[bcrypt]>=1.7.4",

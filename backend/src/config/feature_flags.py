@@ -81,6 +81,16 @@ class FeatureFlags(BaseSettings):
         description="Hours between scheduled full reindex",
     )
 
+    # Chunking Features
+    enable_code_chunker: bool = Field(
+        default=False,
+        description="Enable experimental AST-aware CodeChunker (requires chonkie[code])",
+    )
+    code_chunker_fallback_on_error: bool = Field(
+        default=True,
+        description="Fall back to token chunker if CodeChunker fails",
+    )
+
     # Performance Features
     enable_query_caching: bool = Field(
         default=False,
@@ -148,3 +158,21 @@ def is_semantic_search_enabled() -> bool:
         True if semantic search feature is enabled.
     """
     return get_feature_flags().enable_semantic_search
+
+
+def is_code_chunker_enabled() -> bool:
+    """Check if experimental CodeChunker is enabled.
+
+    Returns:
+        True if CodeChunker feature is enabled.
+    """
+    return get_feature_flags().enable_code_chunker
+
+
+def should_fallback_on_chunker_error() -> bool:
+    """Check if chunker should fallback on error.
+
+    Returns:
+        True if fallback to token chunker is enabled on CodeChunker failure.
+    """
+    return get_feature_flags().code_chunker_fallback_on_error
