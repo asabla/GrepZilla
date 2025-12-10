@@ -98,10 +98,12 @@ def bootstrap_indexes() -> None:
                 "artifact_id",
                 "language",
                 "file_type",
+                "chunking_mode",
             ],
             "sortableAttributes": [
                 "created_at",
                 "line_start",
+                "start_index",
             ],
             "displayedAttributes": [
                 "id",
@@ -112,8 +114,11 @@ def bootstrap_indexes() -> None:
                 "artifact_id",
                 "line_start",
                 "line_end",
+                "start_index",
+                "end_index",
                 "language",
                 "file_type",
+                "chunking_mode",
             ],
         }
     )

@@ -17,6 +17,7 @@ from backend.src.services.ingestion.file_filters import FileInfo
 from backend.src.services.search.chunk_embed import (
     ChunkingService,
     get_chunking_service,
+    get_language_from_extension,
 )
 
 logger = get_logger(__name__)
@@ -35,6 +36,10 @@ class EmbeddedChunk:
     token_count: int
     chunk_index: int
     content_hash: str
+    start_index: int | None = None  # Character offset in original file
+    end_index: int | None = None  # Character offset in original file
+    chunking_mode: str = "token"  # Which chunker produced this
+    language: str | None = None  # Detected/specified programming language
 
 
 @dataclass
@@ -98,11 +103,18 @@ class EmbedService:
                 result.error = "Failed to read file"
                 return result
 
-            # Split into lines for line number tracking
-            lines = content.splitlines(keepends=True)
+            # Derive language from file extension for code-aware chunking
+            file_extension = file_info.extension
+            language = (
+                get_language_from_extension(file_extension) if file_extension else None
+            )
 
-            # Chunk the content
-            chunks = self.chunking_service.chunk_text(content)
+            # Chunk the content with language awareness
+            chunks = self.chunking_service.chunk_text(
+                content,
+                language=language,
+                file_extension=file_extension,
+            )
 
             # Limit chunks per file
             if len(chunks) > self.max_chunks:
@@ -136,14 +148,11 @@ class EmbedService:
                     )
                     embeddings = []
 
-            # Process each chunk
-            current_line = 1
+            # Process each chunk - use line numbers from chunk if available
             for idx, chunk in enumerate(chunks):
-                # Calculate line numbers
-                line_start, line_end = self._find_line_range(
-                    lines, chunk.text, current_line
-                )
-                current_line = line_start
+                # Use line numbers computed by chunker (more accurate for CodeChunker)
+                line_start = chunk.line_start
+                line_end = chunk.line_end
 
                 # Generate chunk ID
                 chunk_id = self._generate_chunk_id(
@@ -169,6 +178,10 @@ class EmbedService:
                     token_count=chunk.token_count,
                     chunk_index=idx,
                     content_hash=content_hash,
+                    start_index=chunk.start_index,
+                    end_index=chunk.end_index,
+                    chunking_mode=chunk.chunking_mode,
+                    language=language,
                 )
 
                 result.chunks.append(embedded_chunk)
@@ -180,6 +193,8 @@ class EmbedService:
                 chunks=len(result.chunks),
                 total_tokens=result.total_tokens,
                 embeddings_generated=len(embeddings) > 0,
+                language=language,
+                chunking_mode=chunks[0].chunking_mode if chunks else "none",
             )
 
         except Exception as e:
@@ -222,26 +237,6 @@ class EmbedService:
             file_path=str(file_path),
         )
         return None
-
-    def _find_line_range(
-        self,
-        lines: list[str],
-        chunk_text: str,
-        start_from: int,
-    ) -> tuple[int, int]:
-        """Find the line range for a chunk of text.
-
-        Args:
-            lines: List of file lines.
-            chunk_text: The chunk text to find.
-            start_from: Line number to start searching from.
-
-        Returns:
-            Tuple of (start_line, end_line) using 1-based indexing.
-        """
-        # Simple approach: count newlines in chunk
-        chunk_lines = chunk_text.count("\n") + 1
-        return start_from, start_from + chunk_lines - 1
 
     def _generate_chunk_id(
         self,

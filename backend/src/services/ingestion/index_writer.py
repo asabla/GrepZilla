@@ -32,6 +32,10 @@ class IndexDocument:
     content_hash: str
     indexed_at: str
     embedding: list[float] | None = None
+    start_index: int | None = None  # Character offset in original file
+    end_index: int | None = None  # Character offset in original file
+    chunking_mode: str = "token"  # Which chunker produced this chunk
+    language: str | None = None  # Programming language (if detected)
 
 
 @dataclass
@@ -178,6 +182,10 @@ class IndexWriter:
             content_hash=chunk.content_hash,
             indexed_at=indexed_at,
             embedding=chunk.embedding,
+            start_index=chunk.start_index,
+            end_index=chunk.end_index,
+            chunking_mode=chunk.chunking_mode,
+            language=chunk.language,
         )
 
     def _categorize_extension(self, extension: str) -> str:
@@ -231,8 +239,9 @@ class IndexWriter:
             Exception: If write fails.
         """
         # Convert to dicts for Meilisearch
-        docs_dict = [
-            {
+        docs_dict = []
+        for doc in documents:
+            doc_dict = {
                 "id": doc.id,
                 "content": doc.content,
                 "repository_id": doc.repository_id,
@@ -246,14 +255,18 @@ class IndexWriter:
                 "chunk_index": doc.chunk_index,
                 "content_hash": doc.content_hash,
                 "indexed_at": doc.indexed_at,
+                "chunking_mode": doc.chunking_mode,
             }
-            for doc in documents
-        ]
-
-        # Add embeddings if present (for vector search)
-        for i, doc in enumerate(documents):
+            # Add optional fields only if they have values
+            if doc.start_index is not None:
+                doc_dict["start_index"] = doc.start_index
+            if doc.end_index is not None:
+                doc_dict["end_index"] = doc.end_index
+            if doc.language:
+                doc_dict["language"] = doc.language
             if doc.embedding:
-                docs_dict[i]["_vectors"] = {"default": doc.embedding}
+                doc_dict["_vectors"] = {"default": doc.embedding}
+            docs_dict.append(doc_dict)
 
         # Write to Meilisearch
         await self.client.add_documents(self.index_name, docs_dict)
@@ -384,8 +397,9 @@ class IndexWriter:
             Exception: If write fails.
         """
         # Convert to dicts for Meilisearch
-        docs_dict = [
-            {
+        docs_dict = []
+        for doc in documents:
+            doc_dict = {
                 "id": doc.id,
                 "content": doc.content,
                 "repository_id": doc.repository_id,
@@ -399,14 +413,18 @@ class IndexWriter:
                 "chunk_index": doc.chunk_index,
                 "content_hash": doc.content_hash,
                 "indexed_at": doc.indexed_at,
+                "chunking_mode": doc.chunking_mode,
             }
-            for doc in documents
-        ]
-
-        # Add embeddings if present (for vector search)
-        for i, doc in enumerate(documents):
+            # Add optional fields only if they have values
+            if doc.start_index is not None:
+                doc_dict["start_index"] = doc.start_index
+            if doc.end_index is not None:
+                doc_dict["end_index"] = doc.end_index
+            if doc.language:
+                doc_dict["language"] = doc.language
             if doc.embedding:
-                docs_dict[i]["_vectors"] = {"default": doc.embedding}
+                doc_dict["_vectors"] = {"default": doc.embedding}
+            docs_dict.append(doc_dict)
 
         # Write to Meilisearch
         self.client.add_documents_sync(self.index_name, docs_dict)

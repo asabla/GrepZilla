@@ -1,10 +1,29 @@
 """Environment settings configuration for the application."""
 
+from enum import StrEnum
 from functools import lru_cache
 from typing import Annotated, Literal
 
 from pydantic import BeforeValidator, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class ChunkerMode(StrEnum):
+    """Available chunker modes."""
+
+    TOKEN = "token"  # Default token-based chunking
+    CODE_AUTO = "code_auto"  # CodeChunker with auto language detection
+    CODE_PYTHON = "code_lang_python"
+    CODE_TYPESCRIPT = "code_lang_typescript"
+    CODE_JAVASCRIPT = "code_lang_javascript"
+    CODE_GO = "code_lang_go"
+    CODE_RUST = "code_lang_rust"
+    CODE_JAVA = "code_lang_java"
+    CODE_C = "code_lang_c"
+    CODE_CPP = "code_lang_cpp"
+    CODE_CSHARP = "code_lang_csharp"
+    CODE_RUBY = "code_lang_ruby"
+    CODE_PHP = "code_lang_php"
 
 
 def _empty_str_to_none(v: str | None) -> int | None:
@@ -172,6 +191,28 @@ class Settings(BaseSettings):
     embedding_enabled: bool = Field(
         default=True,
         description="Enable embedding generation (disable for text-only search)",
+    )
+
+    # Chunking Settings
+    chunker_mode: str = Field(
+        default="token",
+        description="Chunker mode: 'token' (default), 'code_auto', or 'code_lang_<lang>' for explicit language",
+    )
+    chunker_size_tokens: int = Field(
+        default=512,
+        ge=64,
+        le=4096,
+        description="Target chunk size in tokens",
+    )
+    chunker_overlap_tokens: int = Field(
+        default=64,
+        ge=0,
+        le=512,
+        description="Overlap between chunks in tokens (used for token mode)",
+    )
+    code_chunker_include_context: bool = Field(
+        default=True,
+        description="Include split context information in code chunks",
     )
 
     @property
