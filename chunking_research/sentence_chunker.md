@@ -1,0 +1,160 @@
+# Sentence Chunker
+
+> Split text into chunks while preserving sentence boundaries
+
+The `SentenceChunker` splits text into chunks while preserving complete sentences, ensuring that each chunk maintains proper sentence boundaries and context.
+
+## API Reference
+
+To use the `SentenceChunker` via the API, check out the [API reference documentation](../../api/chunkers/sentence-chunker).
+
+## Installation
+
+SentenceChunker is included in the base installation of Chonkie. No additional dependencies are required.
+
+<Info>
+  For installation instructions, see the [Installation
+  Guide](/oss/installation).
+</Info>
+
+## Initialization
+
+```python  theme={"system"}
+from chonkie import SentenceChunker
+
+# Basic initialization with default parameters
+chunker = SentenceChunker(
+    tokenizer="character",     # Default tokenizer (or use "gpt2", etc.)
+    chunk_size=2048,           # Maximum tokens per chunk
+    chunk_overlap=128,         # Overlap between chunks
+    min_sentences_per_chunk=1  # Minimum sentences in each chunk
+)
+```
+
+## Parameters
+
+<ParamField path="tokenizer" type="Union[str, Callable, Any]" default="character">
+  Tokenizer to use. Can be a string identifier ("character", "word", "byte", "gpt2",
+  etc.) or a tokenizer instance
+</ParamField>
+
+<ParamField path="chunk_size" type="int" default="2048">
+  Maximum number of tokens per chunk
+</ParamField>
+
+<ParamField path="chunk_overlap" type="int" default="0">
+  Number of overlapping tokens between chunks
+</ParamField>
+
+<ParamField path="min_sentences_per_chunk" type="int" default="1">
+  Minimum number of sentences to include in each chunk
+</ParamField>
+
+<ParamField path="min_characters_per_sentence" type="int" default="12">
+  Minimum number of characters per sentence
+</ParamField>
+
+<ParamField path="approximate" type="bool" default="False">
+  Use approximate token counting for faster processing.
+
+  <Warning>
+    This field is deprecated and will be removed in future versions.{" "}
+  </Warning>
+</ParamField>
+
+<ParamField path="delim" type="Union[str, List[str]]" default="['.', '!', '?', '\n']">
+  Delimiters to split sentences on
+</ParamField>
+
+<ParamField path="include_delim" type="Optional[Literal[&#x22;prev&#x22;, &#x22;next&#x22;]]" default="prev">
+  Include delimiters in the chunk text. If so, specify whether to include the
+  previous or next delimiter.
+</ParamField>
+
+## Usage
+
+### Single Text Chunking
+
+```python  theme={"system"}
+text = """This is the first sentence. This is the second sentence.
+And here's a third one with some additional context."""
+chunks = chunker.chunk(text)
+
+for chunk in chunks:
+    print(f"Chunk text: {chunk.text}")
+    print(f"Token count: {chunk.token_count}")
+    print(f"Number of sentences: {len(chunk.sentences)}")
+```
+
+### Batch Chunking
+
+```python  theme={"system"}
+texts = [
+    "First document. With multiple sentences.",
+    "Second document. Also with sentences. And more context."
+]
+batch_chunks = chunker.chunk_batch(texts)
+
+for doc_chunks in batch_chunks:
+    for chunk in doc_chunks:
+        print(f"Chunk: {chunk.text}")
+```
+
+### Using as a Callable
+
+```python  theme={"system"}
+# Single text
+chunks = chunker("First sentence. Second sentence.")
+
+# Multiple texts
+batch_chunks = chunker(["Text 1. More text.", "Text 2. More."])
+```
+
+## Supported Tokenizers
+
+SentenceChunker supports multiple tokenizer backends:
+
+* **TikToken** (Recommended)
+
+  ```python  theme={"system"}
+  import tiktoken
+  tokenizer = tiktoken.get_encoding("gpt2")
+  ```
+
+* **AutoTikTokenizer**
+
+  ```python  theme={"system"}
+  from autotiktokenizer import AutoTikTokenizer
+  tokenizer = AutoTikTokenizer.from_pretrained("gpt2")
+  ```
+
+* **Hugging Face Tokenizers**
+
+  ```python  theme={"system"}
+  from tokenizers import Tokenizer
+  tokenizer = Tokenizer.from_pretrained("gpt2")
+  ```
+
+* **Transformers**
+  ```python  theme={"system"}
+  from transformers import AutoTokenizer
+  tokenizer = AutoTokenizer.from_pretrained("gpt2")
+  ```
+
+## Return Type
+
+SentenceChunker returns chunks as `Chunk` objects:
+
+```python  theme={"system"}
+@dataclass
+class Chunk:
+    text: str           # The chunk text
+    start_index: int    # Starting position in original text
+    end_index: int      # Ending position in original text
+    token_count: int    # Number of tokens in chunk
+```
+
+
+---
+
+> To find navigation and other pages in this documentation, fetch the llms.txt file at: https://docs.chonkie.ai/llms.txt
