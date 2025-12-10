@@ -10,7 +10,7 @@ from sqlalchemy.orm import selectinload
 from backend.src.config.logging import get_logger
 from backend.src.config.settings import get_settings
 from backend.src.db.session import get_session_context, get_sync_session_context
-from backend.src.models.branch import Branch
+from backend.src.models.branch import Branch, FreshnessStatus
 from backend.src.models.notification import (
     Notification,
     NotificationSource,
@@ -338,6 +338,36 @@ class RepositoryService:
                 update(Repository)
                 .where(Repository.id == repository_id)
                 .values(access_state=state, updated_at=datetime.now(timezone.utc))
+            )
+            session.commit()
+
+    def update_branch_freshness_sync(
+        self,
+        branch_id: uuid.UUID,
+        status: FreshnessStatus,
+    ) -> None:
+        """Update branch freshness status and last_indexed_at (synchronous version).
+
+        Args:
+            branch_id: Branch UUID.
+            status: New freshness status.
+        """
+        now = datetime.now(timezone.utc)
+        logger.info(
+            "Updating branch freshness (sync)",
+            branch_id=str(branch_id),
+            status=status.value,
+        )
+
+        with get_sync_session_context() as session:
+            session.execute(
+                update(Branch)
+                .where(Branch.id == branch_id)
+                .values(
+                    freshness_status=status,
+                    last_indexed_at=now,
+                    updated_at=now,
+                )
             )
             session.commit()
 
