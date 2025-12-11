@@ -12,18 +12,11 @@ services:
     build:
       context: .
       dockerfile: docker/api/Dockerfile
-      target: base  # Use base stage without pre-built venv for dev
+      target: runtime
     volumes:
       - ./backend:/app/backend:cached
-      - ./pyproject.toml:/app/pyproject.toml:ro
-      - ./uv.lock:/app/uv.lock:ro
-      - api_venv:/app/.venv
     command: >
-      sh -c "
-        pip install uv &&
-        uv sync --frozen --no-install-project &&
-        /app/.venv/bin/uvicorn backend.src.api.main:create_app --factory --host 0.0.0.0 --port 8000 --reload
-      "
+      uvicorn backend.src.api.main:create_app --factory --host 0.0.0.0 --port 8000 --reload
     environment:
       DEBUG: "true"
       APP_ENV: development
@@ -37,17 +30,12 @@ services:
     build:
       context: .
       dockerfile: docker/worker/Dockerfile
-      target: base
+      target: dev
     volumes:
       - ./backend:/app/backend:cached
-      - ./pyproject.toml:/app/pyproject.toml:ro
-      - ./uv.lock:/app/uv.lock:ro
-      - worker_venv:/app/.venv
       - git_repos:/app/repos
     command: >
       sh -c "
-        pip install uv watchfiles &&
-        uv sync --frozen --no-install-project &&
         /app/.venv/bin/watchfiles --filter python '/app/.venv/bin/celery -A backend.src.workers.app worker --loglevel=info' ./backend
       "
     environment:
@@ -63,18 +51,11 @@ services:
     build:
       context: .
       dockerfile: docker/worker/Dockerfile
-      target: base
+      target: runtime
     volumes:
       - ./backend:/app/backend:cached
-      - ./pyproject.toml:/app/pyproject.toml:ro
-      - ./uv.lock:/app/uv.lock:ro
-      - beat_venv:/app/.venv
     command: >
-      sh -c "
-        pip install uv &&
-        uv sync --frozen --no-install-project &&
-        /app/.venv/bin/celery -A backend.src.workers.app beat --loglevel=info
-      "
+      celery -A backend.src.workers.app beat --loglevel=info
     environment:
       DEBUG: "true"
       APP_ENV: development
@@ -87,35 +68,18 @@ services:
     build:
       context: .
       dockerfile: docker/migrate/Dockerfile
-      target: base
+      target: runtime
     volumes:
       - ./backend:/app/backend:cached
       - ./alembic:/app/alembic:cached
       - ./alembic.ini:/app/alembic.ini:ro
-      - ./pyproject.toml:/app/pyproject.toml:ro
-      - ./uv.lock:/app/uv.lock:ro
       - ./docker/migrate/entrypoint.sh:/app/entrypoint.sh:ro
-      - migrate_venv:/app/.venv
-    entrypoint: >
-      bash -c "
-        pip install uv &&
-        export PATH=\"$$HOME/.local/bin:$$PATH\" &&
-        uv sync --frozen --no-install-project &&
-        bash /app/entrypoint.sh
-      "
+    entrypoint: ["/bin/bash", "/app/entrypoint.sh"]
 
 # ----------------------------------------------------------------------------
-# Development volumes for virtual environments
+# Development volumes
 # ----------------------------------------------------------------------------
 
 volumes:
-  api_venv:
-    driver: local
-  worker_venv:
-    driver: local
-  beat_venv:
-    driver: local
-  migrate_venv:
-    driver: local
   git_repos:
     driver: local

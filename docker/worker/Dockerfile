@@ -32,9 +32,12 @@ RUN groupadd --gid 1000 appgroup \
 WORKDIR /app
 
 # ----------------------------------------------------------------------------
-# Stage 2: Builder - install dependencies
+# Stage 2: Dependencies - install Python deps into a venv
 # ----------------------------------------------------------------------------
-FROM base AS builder
+FROM base AS deps
+
+# Use uv for fast, reproducible installs
+ENV UV_LINK_MODE=copy
 
 # Install uv for fast dependency management
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -43,7 +46,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock ./
 
 # Create virtual environment and install production dependencies
-RUN uv sync --frozen --no-dev --no-install-project
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-install-project
 
 # ----------------------------------------------------------------------------
 # Stage 3: Runtime - final production image
@@ -51,7 +54,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 FROM base AS runtime
 
 # Copy virtual environment from builder
-COPY --from=builder /app/.venv /app/.venv
+COPY --from=deps /app/.venv /app/.venv
 
 # Set PATH to use virtual environment
 ENV PATH="/app/.venv/bin:$PATH"
@@ -75,3 +78,20 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
 # Default command (worker mode)
 # Override with beat command in docker-compose for scheduler
 CMD ["celery", "-A", "backend.src.workers.app", "worker", "--loglevel=info"]
+
+# ----------------------------------------------------------------------------
+# Stage 4: Dev runtime - add dev-only tooling (hot reload)
+# ----------------------------------------------------------------------------
+FROM runtime AS dev
+
+# Copy uv for installing additional packages
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Install watchfiles for autoreload in development
+RUN --mount=type=cache,target=/root/.cache/uv uv pip install --python /app/.venv/bin/python watchfiles
+
+# ----------------------------------------------------------------------------
+# Stage 5: Default (production) stage
+# This remains the default build target to avoid pulling in dev-only tools
+# ----------------------------------------------------------------------------
+FROM runtime AS final
