@@ -32,9 +32,12 @@ RUN groupadd --gid 1000 appgroup \
 WORKDIR /app
 
 # ----------------------------------------------------------------------------
-# Stage 2: Builder - install dependencies
+# Stage 2: Dependencies - install Python deps into a venv
 # ----------------------------------------------------------------------------
-FROM base AS builder
+FROM base AS deps
+
+# Use uv for fast, reproducible installs
+ENV UV_LINK_MODE=copy
 
 # Install uv for fast dependency management
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -43,7 +46,7 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock ./
 
 # Create virtual environment and install production dependencies
-RUN uv sync --frozen --no-dev --no-install-project
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-install-project
 
 # ----------------------------------------------------------------------------
 # Stage 3: Runtime - final production image
@@ -51,7 +54,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 FROM base AS runtime
 
 # Copy virtual environment from builder
-COPY --from=builder /app/.venv /app/.venv
+COPY --from=deps /app/.venv /app/.venv
 
 # Set PATH to use virtual environment
 ENV PATH="/app/.venv/bin:$PATH"
@@ -60,7 +63,7 @@ ENV PATH="/app/.venv/bin:$PATH"
 COPY backend/ ./backend/
 
 # Copy alembic config if it exists (optional)
-COPY alembic.in[i] ./
+COPY alembic.ini ./
 
 # Change ownership to non-root user
 RUN chown -R appuser:appgroup /app
